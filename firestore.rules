@@ -1,0 +1,189 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    /**
+     * =========================
+     * Auth / Role helpers
+     * =========================
+     */
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/cafeUsers/$(request.auth.uid)).data;
+    }
+
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/cafeUsers/$(request.auth.uid));
+    }
+
+    function isCafeUser(cafeId) {
+      return hasUserDoc() && getUserData().cafeId == cafeId;
+    }
+
+    function isOwner(cafeId) {
+      return isCafeUser(cafeId) && getUserData().role == 'owner';
+    }
+
+    function isManager(cafeId) {
+      return isCafeUser(cafeId) && getUserData().role == 'manager';
+    }
+
+    function isOwnerOrManager(cafeId) {
+      return isOwner(cafeId) || isManager(cafeId);
+    }
+
+    function isNonNegativeNumber(value) {
+      return value is number && value >= 0;
+    }
+
+    /**
+     * Validate table create/update payload shape
+     */
+    function isValidTableWriteData() {
+      return request.resource.data.cafeId is string
+        && request.resource.data.name is string
+        && request.resource.data.publicToken is string
+        && request.resource.data.publicToken.size() >= 24
+        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && (request.resource.data.deletedAt == null || request.resource.data.deletedAt is timestamp);
+    }
+
+    /**
+     * Public read gate for token based access.
+     * NOTE: Rules cannot enforce projection/field filtering.
+     */
+    function isPublicTableReadable() {
+      return !isAuthenticated()
+        && resource.data.deletedAt == null
+        && resource.data.publicToken is string
+        && resource.data.publicToken.size() >= 24;
+    }
+
+    /**
+     * =========================
+     * cafes
+     * =========================
+     */
+    match /cafes/{cafeId} {
+      allow read: if isOwnerOrManager(cafeId);
+      allow create: if isOwner(cafeId) && request.resource.data.id == cafeId;
+      allow update, delete: if isOwner(cafeId);
+    }
+
+    /**
+     * =========================
+     * cafeUsers
+     * =========================
+     */
+    match /cafeUsers/{userId} {
+      // Users can only read their own membership document.
+      allow get: if isAuthenticated() && request.auth.uid == userId;
+      allow list: if false;
+
+      // Prevent clients from freely modifying role/cafe mapping.
+      // Manage via Admin SDK / trusted backend flow.
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * =========================
+     * tables
+     * =========================
+     */
+    match /tables/{tableId} {
+      // Admin read: cafe-isolated
+      allow read: if isOwnerOrManager(resource.data.cafeId)
+                  || isPublicTableReadable();
+
+      allow create: if isOwnerOrManager(request.resource.data.cafeId)
+                    && isValidTableWriteData()
+                    && request.resource.data.deletedAt == null;
+
+      allow update: if isOwnerOrManager(resource.data.cafeId)
+                    && isValidTableWriteData()
+                    // cafe isolation / immutable identity fields
+                    && request.resource.data.cafeId == resource.data.cafeId
+                    && request.resource.data.publicToken == resource.data.publicToken
+                    // protect aggregate fields from arbitrary client writes
+                    && request.resource.data.totalAmount == resource.data.totalAmount
+                    && request.resource.data.itemCount == resource.data.itemCount;
+
+      allow delete: if false; // soft delete only
+    }
+
+    /**
+     * =========================
+     * tableItems
+     * =========================
+     */
+    match /tableItems/{itemId} {
+      allow read: if isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isOwnerOrManager(request.resource.data.cafeId)
+                    && request.resource.data.tableId is string
+                    && request.resource.data.cafeId is string
+                    && request.resource.data.name is string
+                    && request.resource.data.quantity is int
+                    && request.resource.data.quantity > 0
+                    && isNonNegativeNumber(request.resource.data.unitPrice)
+                    && isNonNegativeNumber(request.resource.data.totalPrice)
+                    && request.resource.data.deletedAt == null
+                    // table must belong to same cafe
+                    && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.cafeId
+                      == request.resource.data.cafeId;
+
+      allow update: if isOwnerOrManager(resource.data.cafeId)
+                    && request.resource.data.cafeId == resource.data.cafeId
+                    && request.resource.data.tableId == resource.data.tableId
+                    && request.resource.data.quantity is int
+                    && request.resource.data.quantity > 0
+                    && isNonNegativeNumber(request.resource.data.unitPrice)
+                    && isNonNegativeNumber(request.resource.data.totalPrice)
+                    // keep relation cafe/table consistent
+                    && get(/databases/$(database)/documents/tables/$(resource.data.tableId)).data.cafeId
+                      == resource.data.cafeId;
+
+      allow delete: if false; // soft delete only
+    }
+
+    /**
+     * =========================
+     * tableActivityLogs (append-only)
+     * =========================
+     */
+    match /tableActivityLogs/{logId} {
+      allow read: if isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isOwnerOrManager(request.resource.data.cafeId)
+                    && request.resource.data.tableId is string
+                    && request.resource.data.message is string
+                    && request.resource.data.actionType is string
+                    && request.resource.data.actorType in ['admin', 'system']
+                    && (request.resource.data.actorId == null || request.resource.data.actorId is string)
+                    && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.cafeId
+                      == request.resource.data.cafeId;
+
+      allow update, delete: if false;
+    }
+
+    /**
+     * =========================
+     * payments (future) - locked for now
+     * =========================
+     */
+    match /payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    /**
+     * Default deny
+     */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
