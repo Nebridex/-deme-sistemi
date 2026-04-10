@@ -36,10 +36,23 @@ function AdminDashboardContent() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const unsub = subscribeTables(user?.cafeId ?? DEFAULT_CAFE_ID, (nextTables) => {
-      setTables(nextTables);
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTables(
+        user?.cafeId ?? DEFAULT_CAFE_ID,
+        (nextTables) => {
+          setTables(nextTables);
+          setLoading(false);
+        },
+        (message) => {
+          setError(message || 'Failed to subscribe tables.');
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
       setLoading(false);
-    });
+    }
     return () => unsub?.();
   }, [user?.cafeId]);
 

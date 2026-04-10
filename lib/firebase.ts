@@ -1,6 +1,6 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,8 +11,30 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-export const isFirebaseConfigured = Object.values(firebaseConfig).every(Boolean);
-const app = isFirebaseConfigured ? (getApps()[0] ?? initializeApp(firebaseConfig)) : null;
+const missingKeys = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
 
-export const db = app ? getFirestore(app) : null;
-export const auth = app ? getAuth(app) : null;
+export const isFirebaseConfigured = missingKeys.length === 0;
+export const firebaseConfigError = isFirebaseConfigured
+  ? null
+  : `Missing Firebase env vars: ${missingKeys.join(', ')}`;
+
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
+let auth: Auth | null = null;
+
+if (isFirebaseConfigured) {
+  app = getApps()[0] ?? initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  auth = getAuth(app);
+}
+
+export { app, db, auth };
+
+export function assertFirebaseConfigured() {
+  if (!isFirebaseConfigured || !db || !auth) {
+    throw new Error(firebaseConfigError ?? 'Firebase is not configured correctly.');
+  }
+  return { db, auth };
+}

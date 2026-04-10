@@ -14,12 +14,26 @@ export default function CustomerTablePage() {
   const [projection, setProjection] = useState<PublicTableProjection | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = subscribePublicTableByToken(publicToken, (next) => {
-      setProjection(next);
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribePublicTableByToken(
+        publicToken,
+        (next) => {
+          setProjection(next);
+          setLoading(false);
+        },
+        (message) => {
+          setError(message || 'Could not load table bill.');
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firebase unavailable.');
       setLoading(false);
-    });
+    }
     return () => unsub?.();
   }, [publicToken]);
 
@@ -41,6 +55,7 @@ export default function CustomerTablePage() {
   );
 
   if (loading) return <main className="p-6 text-center text-slate-500">Loading your table...</main>;
+  if (error) return <main className="p-6 text-center text-rose-700">{error}</main>;
   if (!bill) return <main className="p-6 text-center text-slate-500">Table link invalid or expired.</main>;
 
   return (

@@ -1,50 +1,53 @@
-# Cafe Bill Management MVP (Security-Hardened)
+# Cafe Bill Management MVP (Firebase Integrated)
 
-Next.js + TypeScript + Tailwind + Firebase-first architecture for QR table bill management.
+Next.js + TypeScript + Tailwind + Firebase App/Firestore/Auth integration.
 
-## Current architecture
-- Admin routes: `/admin`, `/admin/login`, `/admin/tables/[tableId]`
-- Public route: `/t/[publicToken]`
-- Public reads now use `publicTables/{publicToken}` projection (not raw `tables` docs)
+## Routes
+- Admin login: `/admin/login`
+- Admin dashboard: `/admin`
+- Admin table detail: `/admin/tables/[tableId]`
+- Public customer bill: `/t/[publicToken]`
 
-## Collections
+## Firebase collections
 - `cafes`
 - `cafeUsers`
-- `tables` (admin-only)
-- `tableItems` (admin-only)
-- `tableActivityLogs` (admin-only read, append-only)
-- `publicTables` (public read projection)
+- `tables`
+- `tableItems`
+- `publicTables`
+- `tableActivityLogs`
 - `payments` (locked scaffold)
 
-## Security highlights
-- No anonymous writes anywhere.
-- Raw table docs are not publicly readable.
-- Role and cafe isolation enforced via `cafeUsers`.
-- Soft delete respected in active selectors and public projection.
-- Owner-only token rotation support.
+## Required environment (.env.local)
+```bash
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+```
 
-## Totals and projection sync
-Client service layer centralizes:
-- `recomputeTableAggregates(tableId, cafeId)`
-- `syncPublicTableProjection(tableId, cafeId)`
+If these are missing, the app shows a configuration error and blocks auth/data operations.
 
-This is the migration boundary for Cloud Functions.
+## Firebase setup steps
+1. Enable **Authentication > Email/Password**.
+2. Create Firestore database (Native mode).
+3. Add `cafeUsers/{uid}` docs for admins with:
+   - `cafeId`
+   - `email`
+   - `role` = `owner` or `manager`
+4. Create `tables`, `tableItems`, `publicTables`, `tableActivityLogs` collections as needed by app usage.
+5. Deploy `firestore.rules`.
 
-## Demo mode (no Firebase required)
-Missing Firebase env vars triggers localStorage mock mode.
-Demo login:
-- `owner@cafe.com` / `admin123`
-- `manager@cafe.com` / `admin123`
+## Integration notes
+- Firebase app initialization is single-instance (`getApps` guard).
+- Admin session persistence is Firebase Auth default persistence.
+- Admin routes are protected via auth listener + role lookup in `cafeUsers`.
+- Realtime updates use `onSnapshot` for dashboard and public bill views.
+- Service-layer functions:
+  - `recomputeTableAggregates(tableId, cafeId)`
+  - `syncPublicTableProjection(tableId, cafeId)`
+  - `rotateTableToken(table, actor)`
 
-## Environment templates
-- `.env.example`
-- `.env.staging.example`
-- `.env.production.example`
-
-## Next security steps
-1. Import `firestore.rules` into Firebase.
-2. Run Emulator Suite tests for owner/manager/anonymous scenarios.
-3. Move aggregate + projection sync into Cloud Functions (`functions/README.md`).
-4. Keep `cafeUsers` role assignment backend/admin-only.
-
-See also: `SECURITY_NOTES.md`.
+## Important security boundary
+Aggregate integrity is improved by centralizing writes, but full server-authoritative enforcement should still be moved into Cloud Functions/Admin SDK for production-hard guarantees.

@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminLogin } from '@/lib/auth';
-import { isFirebaseConfigured } from '@/lib/firebase';
+import { firebaseConfigError, isFirebaseConfigured } from '@/lib/firebase';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -16,6 +16,7 @@ export default function AdminLoginPage() {
     event.preventDefault();
     setLoading(true);
     setError(null);
+
     try {
       await adminLogin(email, password);
       router.replace('/admin');
@@ -26,11 +27,22 @@ export default function AdminLoginPage() {
     }
   };
 
+  if (!isFirebaseConfigured) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center p-5">
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <h1 className="text-2xl font-bold">Firebase configuration required</h1>
+          <p className="mt-2 text-sm text-rose-700">{firebaseConfigError}</p>
+          <p className="mt-2 text-sm text-slate-600">Please set your `.env.local` with NEXT_PUBLIC_FIREBASE_* values and restart app.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center p-5">
       <div className="rounded-2xl bg-white p-5 shadow-sm">
         <h1 className="text-2xl font-bold">Admin Login</h1>
-        {!isFirebaseConfigured && <p className="mt-1 text-sm text-slate-500">Demo: owner@cafe.com or manager@cafe.com / admin123</p>}
         <form className="mt-4 space-y-3" onSubmit={onSubmit}>
           <input required type="email" placeholder="Email" className="w-full rounded-lg border px-3 py-2" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input required type="password" placeholder="Password" className="w-full rounded-lg border px-3 py-2" value={password} onChange={(e) => setPassword(e.target.value)} />

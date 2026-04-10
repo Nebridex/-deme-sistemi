@@ -1,46 +1,53 @@
 'use client';
 
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '@/lib/firebase';
-import { getMockAuthState, setMockAuthState } from '@/lib/mockStore';
-import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
-import type { AdminIdentity } from '@/types';
+import { doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { assertFirebaseConfigured } from '@/lib/firebase';
+import type { AdminIdentity, CafeUser } from '@/types';
 
-export function mapUserToIdentity(user: User | { email: string }): AdminIdentity {
+async function buildIdentity(uid: string, email: string | null): Promise<AdminIdentity | null> {
+  const { db } = assertFirebaseConfigured();
+  const snap = await getDoc(doc(db, 'cafeUsers', uid));
+  if (!snap.exists()) return null;
+  const cafeUser = snap.data() as CafeUser;
+  if (cafeUser.role !== 'owner' && cafeUser.role !== 'manager') return null;
+
   return {
-    uid: 'uid' in user ? user.uid : 'demo-admin',
-    email: user.email ?? 'demo@cafe.com',
-    cafeId: DEFAULT_CAFE_ID,
-    role: (user.email ?? '').includes('owner') ? 'owner' : 'manager'
+    uid,
+    email: email ?? cafeUser.email,
+    cafeId: cafeUser.cafeId,
+    role: cafeUser.role
   };
 }
 
-export function subscribeAdminAuth(callback: (user: AdminIdentity | null) => void) {
-  if (!isFirebaseConfigured || !auth) {
-    const emit = () => callback(getMockAuthState() ? mapUserToIdentity({ email: 'owner@cafe.com' }) : null);
-    emit();
-    window.addEventListener('mock-db-updated', emit);
-    return () => window.removeEventListener('mock-db-updated', emit);
-  }
+export function subscribeAdminAuth(callback: (user: AdminIdentity | null) => void, onError?: (message: string) => void) {
+  const { auth } = assertFirebaseConfigured();
 
-  return onAuthStateChanged(auth, (user) => callback(user ? mapUserToIdentity(user) : null));
+  return onAuthStateChanged(
+    auth,
+    async (user) => {
+      try {
+        if (!user) return callback(null);
+        const identity = await buildIdentity(user.uid, user.email);
+        callback(identity);
+      } catch (err) {
+        onError?.(err instanceof Error ? err.message : 'Failed to initialize admin session.');
+        callback(null);
+      }
+    },
+    (err) => {
+      onError?.(err.message || 'Auth listener failed.');
+      callback(null);
+    }
+  );
 }
 
 export async function adminLogin(email: string, password: string) {
-  if (!isFirebaseConfigured || !auth) {
-    if ((email === 'owner@cafe.com' || email === 'manager@cafe.com') && password === 'admin123') {
-      setMockAuthState(true);
-      return;
-    }
-    throw new Error('Use owner@cafe.com or manager@cafe.com with admin123 in demo mode.');
-  }
+  const { auth } = assertFirebaseConfigured();
   await signInWithEmailAndPassword(auth, email, password);
 }
 
 export async function adminLogout() {
-  if (!isFirebaseConfigured || !auth) {
-    setMockAuthState(false);
-    return;
-  }
+  const { auth } = assertFirebaseConfigured();
   await signOut(auth);
 }

@@ -33,13 +33,48 @@ function AdminTableDetailContent() {
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => subscribeTableById(tableId, (value) => {
-    setTable(value);
-    setLoading(false);
-  }), [tableId]);
-  useEffect(() => subscribeTableItems(tableId, setItems), [tableId]);
-  useEffect(() => subscribeTableActivityLogs(tableId, setLogs), [tableId]);
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTableById(
+        tableId,
+        (value) => {
+          setTable(value);
+          setLoading(false);
+        },
+        (message) => {
+          setError(message || 'Could not load table.');
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
+      setLoading(false);
+    }
+    return () => unsub?.();
+  }, [tableId]);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTableItems(tableId, setItems, (message) => setError(message || 'Could not load items.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
+    }
+    return () => unsub?.();
+  }, [tableId]);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTableActivityLogs(tableId, setLogs, (message) => setError(message || 'Could not load logs.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
+    }
+    return () => unsub?.();
+  }, [tableId]);
 
   const editingItem = useMemo(() => items.find((i) => i.id === editingId), [items, editingId]);
   useEffect(() => {
@@ -54,10 +89,15 @@ function AdminTableDetailContent() {
     event.preventDefault();
     if (!table || !name.trim()) return;
 
-    if (editingId) {
-      await editTableItem(editingId, { tableId, cafeId: table.cafeId, name: name.trim(), quantity, unitPrice }, user);
-    } else {
-      await addTableItem(tableId, table.cafeId, name.trim(), quantity, unitPrice, user);
+    try {
+      if (editingId) {
+        await editTableItem(editingId, { tableId, cafeId: table.cafeId, name: name.trim(), quantity, unitPrice }, user);
+      } else {
+        await addTableItem(tableId, table.cafeId, name.trim(), quantity, unitPrice, user);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save item.');
+      return;
     }
     setName(''); setQuantity(1); setUnitPrice(0); setEditingId(null);
   };
@@ -83,6 +123,8 @@ function AdminTableDetailContent() {
           )}
         </div>
       </div>
+
+      {error && <div className="mb-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 
       <section className="rounded-xl bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
