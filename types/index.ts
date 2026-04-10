@@ -50,6 +50,22 @@ export type TableItem = {
   updatedAt: TimestampMs;
 };
 
+export type PublicTableItem = Pick<TableItem, 'name' | 'quantity' | 'unitPrice' | 'totalPrice'>;
+
+export type PublicTableProjection = {
+  id: string; // publicToken as document ID
+  cafeId: string;
+  tableId: string;
+  publicToken: string;
+  tableName: string;
+  status: TableStatus;
+  itemCount: number;
+  totalAmount: number;
+  items: PublicTableItem[];
+  updatedAt: TimestampMs;
+  deletedAt: TimestampMs | null;
+};
+
 export type TableActivityLog = {
   id: string;
   tableId: string;
@@ -61,7 +77,8 @@ export type TableActivityLog = {
     | 'table_deleted'
     | 'item_added'
     | 'item_edited'
-    | 'item_removed';
+    | 'item_removed'
+    | 'token_rotated';
   message: string;
   actorType: ActorType;
   actorId: string | null;
@@ -84,6 +101,7 @@ export type PublicTableBillView = {
   status: TableStatus;
   itemCount: number;
   totalAmount: number;
+  items: PublicTableItem[];
 };
 
 export type AdminIdentity = {

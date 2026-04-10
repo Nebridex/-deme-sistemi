@@ -8,8 +8,8 @@ import { BillSummary } from '@/app/components/BillSummary';
 import {
   addTableItem,
   editTableItem,
-  ensureTableToken,
   formatCurrency,
+  rotateTableToken,
   softDeleteTableItem,
   subscribeTableActivityLogs,
   subscribeTableById,
@@ -41,12 +41,6 @@ function AdminTableDetailContent() {
   useEffect(() => subscribeTableItems(tableId, setItems), [tableId]);
   useEffect(() => subscribeTableActivityLogs(tableId, setLogs), [tableId]);
 
-  useEffect(() => {
-    if (table?.publicToken === '') {
-      void ensureTableToken(table.id, table.publicToken);
-    }
-  }, [table]);
-
   const editingItem = useMemo(() => items.find((i) => i.id === editingId), [items, editingId]);
   useEffect(() => {
     if (editingItem) {
@@ -75,7 +69,19 @@ function AdminTableDetailContent() {
     <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
       <div className="mb-4 flex items-center justify-between">
         <Link href="/admin" className="text-sm text-slate-600 underline">← Back</Link>
-        <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Open public bill</Link>
+        <div className="flex gap-2">
+          <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Open public bill</Link>
+          {user?.role === 'owner' && (
+            <button
+              className="rounded-md border border-amber-300 px-3 py-1.5 text-sm text-amber-700"
+              onClick={async () => {
+                await rotateTableToken(table, user);
+              }}
+            >
+              Rotate Token
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="rounded-xl bg-white p-4 shadow-sm">

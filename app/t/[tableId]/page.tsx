@@ -3,34 +3,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { BillSummary } from '@/app/components/BillSummary';
-import { ItemList } from '@/app/components/ItemList';
-import { mapTableToPublicBill, subscribeTableByPublicToken, subscribeTableItems } from '@/lib/firestore';
+import { formatCurrency, mapPublicProjectionToBillView, subscribePublicTableByToken } from '@/lib/firestore';
 import { DEFAULT_CAFE_NAME } from '@/lib/domain/constants';
-import type { CafeTable, PublicTableBillView, TableItem } from '@/types';
+import type { PublicTableBillView, PublicTableProjection } from '@/types';
 
 export default function CustomerTablePage() {
   const params = useParams<{ tableId: string }>();
   const publicToken = params.tableId;
 
-  const [table, setTable] = useState<CafeTable | null>(null);
-  const [items, setItems] = useState<TableItem[]>([]);
+  const [projection, setProjection] = useState<PublicTableProjection | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeTableByPublicToken(publicToken, (next) => {
-      setTable(next);
+    const unsub = subscribePublicTableByToken(publicToken, (next) => {
+      setProjection(next);
       setLoading(false);
     });
     return () => unsub?.();
   }, [publicToken]);
-
-  const tableId = table?.id;
-
-  useEffect(() => {
-    if (!tableId) return;
-    return subscribeTableItems(tableId, setItems);
-  }, [tableId]);
 
   useEffect(() => {
     setOffline(!navigator.onLine);
@@ -44,10 +35,13 @@ export default function CustomerTablePage() {
     };
   }, []);
 
-  const bill: PublicTableBillView | null = useMemo(() => (table ? mapTableToPublicBill(table) : null), [table]);
+  const bill: PublicTableBillView | null = useMemo(
+    () => (projection ? mapPublicProjectionToBillView(projection) : null),
+    [projection]
+  );
 
   if (loading) return <main className="p-6 text-center text-slate-500">Loading your table...</main>;
-  if (!table || !bill) return <main className="p-6 text-center text-slate-500">Table link invalid or expired.</main>;
+  if (!bill) return <main className="p-6 text-center text-slate-500">Table link invalid or expired.</main>;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md space-y-4 p-4">
@@ -61,7 +55,22 @@ export default function CustomerTablePage() {
       <BillSummary totalAmount={bill.totalAmount} itemCount={bill.itemCount} />
       <section>
         <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">Items</h2>
-        <ItemList items={items} emptyText="No items on this table yet." />
+        {!bill.items.length && <div className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No items on this table yet.</div>}
+        {!!bill.items.length && (
+          <ul className="space-y-3">
+            {bill.items.map((item, idx) => (
+              <li key={`${item.name}-${idx}`} className="rounded-xl bg-white p-4 shadow-sm">
+                <div className="flex justify-between">
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-slate-500">{item.quantity} × {formatCurrency(item.unitPrice)}</p>
+                  </div>
+                  <p className="font-semibold">{formatCurrency(item.totalPrice)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </main>
   );

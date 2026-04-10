@@ -1,54 +1,50 @@
-# Cafe Bill Management MVP (Production-Ready Scaffold)
+# Cafe Bill Management MVP (Security-Hardened)
 
-Next.js App Router + TypeScript + Tailwind + Firebase-oriented architecture for QR-based cafe table bill tracking.
+Next.js + TypeScript + Tailwind + Firebase-first architecture for QR table bill management.
 
-## What exists now
-- Admin area: `/admin`, `/admin/login`, `/admin/tables/[tableId]`
-- Public customer table bill: `/t/[publicToken]`
-- Token-based public access (no tableId exposure)
-- Soft delete for tables/items (`deletedAt`)
-- Table activity logs
-- Role model scaffold (`owner` | `manager`)
-- Single-source total calculation utility
-- Firebase-ready + local demo fallback
+## Current architecture
+- Admin routes: `/admin`, `/admin/login`, `/admin/tables/[tableId]`
+- Public route: `/t/[publicToken]`
+- Public reads now use `publicTables/{publicToken}` projection (not raw `tables` docs)
 
-## Data model (scaffolded)
-Collections:
+## Collections
 - `cafes`
 - `cafeUsers`
-- `tables`
-- `tableItems`
-- `tableActivityLogs`
-- `payments` (scaffold only)
+- `tables` (admin-only)
+- `tableItems` (admin-only)
+- `tableActivityLogs` (admin-only read, append-only)
+- `publicTables` (public read projection)
+- `payments` (locked scaffold)
 
-## Environment setup
-Use one of these env templates:
-- `.env.example` (dev)
-- `.env.staging.example`
-- `.env.production.example`
+## Security highlights
+- No anonymous writes anywhere.
+- Raw table docs are not publicly readable.
+- Role and cafe isolation enforced via `cafeUsers`.
+- Soft delete respected in active selectors and public projection.
+- Owner-only token rotation support.
 
-Copy one into `.env.local` when running locally.
+## Totals and projection sync
+Client service layer centralizes:
+- `recomputeTableAggregates(tableId, cafeId)`
+- `syncPublicTableProjection(tableId, cafeId)`
+
+This is the migration boundary for Cloud Functions.
 
 ## Demo mode (no Firebase required)
-If Firebase env variables are missing, app uses localStorage mock mode.
-
-Demo logins:
+Missing Firebase env vars triggers localStorage mock mode.
+Demo login:
 - `owner@cafe.com` / `admin123`
 - `manager@cafe.com` / `admin123`
 
-## Firebase completion steps (after this task)
-1. Create Firestore collections listed above.
-2. Add `cafeUsers/{uid}` docs with `{cafeId, role}`.
-3. Import and adapt `firestore.rules`.
-4. Configure Auth (email/password).
-5. Validate rules in Emulator Suite.
-6. Move total recalculation to Cloud Functions for strict server-side trust.
+## Environment templates
+- `.env.example`
+- `.env.staging.example`
+- `.env.production.example`
 
-## Security and production notes
-See `SECURITY_NOTES.md` for assumptions and gaps requiring final Firebase-side verification.
+## Next security steps
+1. Import `firestore.rules` into Firebase.
+2. Run Emulator Suite tests for owner/manager/anonymous scenarios.
+3. Move aggregate + projection sync into Cloud Functions (`functions/README.md`).
+4. Keep `cafeUsers` role assignment backend/admin-only.
 
-## MVP limitations (intentional)
-- No payment processing yet
-- No POS integration
-- No ordering/menu flow
-- No heavy multi-tenant orchestration beyond cafe-scoped structure prep
+See also: `SECURITY_NOTES.md`.
