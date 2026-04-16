@@ -20,10 +20,11 @@ import {
 import { formatRelativeTime } from '@/lib/domain/time';
 import { appEnv } from '@/lib/env';
 import {
-  getPresetItemNames,
+  getPresetItems,
   getRecentItemNames,
+  type PresetItemShortcut,
   rememberRecentItemName,
-  savePresetItemNames
+  savePresetItems
 } from '@/lib/domain/recentItems';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import type { CafeTable, TableActivityLog, TableItem } from '@/types';
@@ -44,8 +45,9 @@ function AdminTableDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [optionalWarnings, setOptionalWarnings] = useState<string[]>([]);
   const [recentItems, setRecentItems] = useState<string[]>([]);
-  const [presetItems, setPresetItems] = useState<string[]>([]);
+  const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
   const [newPreset, setNewPreset] = useState('');
+  const [newPresetPrice, setNewPresetPrice] = useState('');
 
   const publicBillUrl = `${appEnv.appBaseUrl}/t/${table?.publicToken ?? ''}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(publicBillUrl)}`;
@@ -74,7 +76,7 @@ function AdminTableDetailContent() {
   useEffect(() => {
     if (!user?.cafeId) return;
     setRecentItems(getRecentItemNames(user.cafeId));
-    setPresetItems(getPresetItemNames(user.cafeId));
+    setPresetItems(getPresetItems(user.cafeId));
   }, [user?.cafeId]);
 
   useEffect(() => {
@@ -259,9 +261,18 @@ function AdminTableDetailContent() {
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Hazır kısayol ürünleri</p>
                 <div className="flex flex-wrap gap-2">
-                  {presetItems.map((itemName) => (
-                    <button key={itemName} type="button" className="rounded-full bg-slate-100 px-2 py-1 text-xs" onClick={() => setName(itemName)}>
-                      {itemName}
+                  {presetItems.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className="rounded-full bg-slate-100 px-2 py-1 text-xs"
+                      onClick={() => {
+                        setName(item.name);
+                        if (typeof item.defaultPrice === 'number') setUnitPrice(item.defaultPrice);
+                      }}
+                    >
+                      {item.name}
+                      {typeof item.defaultPrice === 'number' ? ` · ${formatCurrency(item.defaultPrice)}` : ''}
                     </button>
                   ))}
                 </div>
@@ -272,17 +283,24 @@ function AdminTableDetailContent() {
 
           <div className="space-y-2 rounded-xl bg-white p-4 shadow-sm">
             <h3 className="font-semibold">Hazır Ürün Kısayolları</h3>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[1fr,120px,70px] gap-2">
               <input className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Örn. Filtre Kahve" value={newPreset} onChange={(e) => setNewPreset(e.target.value)} />
+              <input className="rounded-lg border px-3 py-2 text-sm" placeholder="Fiyat" value={newPresetPrice} onChange={(e) => setNewPresetPrice(e.target.value)} />
               <button
                 type="button"
                 className="rounded-md border px-3 text-xs"
                 onClick={() => {
                   if (!user?.cafeId || !newPreset.trim()) return;
-                  const next = [newPreset.trim(), ...presetItems.filter((item) => item.toLocaleLowerCase() !== newPreset.trim().toLocaleLowerCase())].slice(0, 12);
+                  const parsedPrice = Number(newPresetPrice);
+                  const defaultPrice = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : null;
+                  const next = [
+                    { name: newPreset.trim(), defaultPrice },
+                    ...presetItems.filter((item) => item.name.toLocaleLowerCase() !== newPreset.trim().toLocaleLowerCase())
+                  ].slice(0, 12);
                   setPresetItems(next);
-                  savePresetItemNames(user.cafeId, next);
+                  savePresetItems(user.cafeId, next);
                   setNewPreset('');
+                  setNewPresetPrice('');
                 }}
               >
                 Ekle
@@ -292,17 +310,18 @@ function AdminTableDetailContent() {
               <div className="flex flex-wrap gap-2">
                 {presetItems.map((preset) => (
                   <button
-                    key={preset}
+                    key={preset.name}
                     type="button"
                     className="rounded-full border px-2 py-1 text-xs"
                     onClick={() => {
                       if (!user?.cafeId) return;
-                      const next = presetItems.filter((item) => item !== preset);
+                      const next = presetItems.filter((item) => item.name !== preset.name);
                       setPresetItems(next);
-                      savePresetItemNames(user.cafeId, next);
+                      savePresetItems(user.cafeId, next);
                     }}
                   >
-                    {preset} ×
+                    {preset.name}
+                    {typeof preset.defaultPrice === 'number' ? ` · ${formatCurrency(preset.defaultPrice)}` : ''} ×
                   </button>
                 ))}
               </div>

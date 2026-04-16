@@ -8,7 +8,7 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { adminLogout } from '@/lib/auth';
 import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
-import { getPresetItemNames, getRecentItemNames, rememberRecentItemName } from '@/lib/domain/recentItems';
+import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
 import { addTableItem, createTable, formatCurrency, formatFirestoreActionError, softDeleteTable, subscribeTables, updateTable } from '@/lib/firestore';
 import type { CafeTable } from '@/types';
 
@@ -22,7 +22,7 @@ function AdminDashboardContent() {
   const [newTableName, setNewTableName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [recentItems, setRecentItems] = useState<string[]>([]);
-  const [presetItems, setPresetItems] = useState<string[]>([]);
+  const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
 
   useEffect(() => {
     setOffline(!navigator.onLine);
@@ -39,7 +39,7 @@ function AdminDashboardContent() {
   useEffect(() => {
     if (!user?.cafeId) return;
     setRecentItems(getRecentItemNames(user.cafeId));
-    setPresetItems(getPresetItemNames(user.cafeId));
+    setPresetItems(getPresetItems(user.cafeId));
   }, [user?.cafeId]);
 
   useEffect(() => {
@@ -131,8 +131,10 @@ function AdminDashboardContent() {
           <div className="mt-3">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Hazır ürün kısayolları</p>
             <div className="flex flex-wrap gap-2">
-              {presetItems.slice(0, 6).map((itemName) => (
-                <span key={itemName} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">{itemName}</span>
+              {presetItems.slice(0, 6).map((item) => (
+                <span key={item.name} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
+                  {item.name}{typeof item.defaultPrice === 'number' ? ` · ${formatCurrency(item.defaultPrice)}` : ''}
+                </span>
               ))}
             </div>
           </div>
@@ -163,11 +165,20 @@ function AdminDashboardContent() {
               onRename={(id, name) => updateTable(id, { name }, user)}
               onToggleStatus={(id, status) => updateTable(id, { status }, user)}
               onQuickAdd={async (t) => {
-                const suggestedName = recentItems[0] || presetItems[0] || 'Çay';
+                const suggestedPreset = presetItems[0];
+                const suggestedName = recentItems[0] || suggestedPreset?.name || 'Çay';
                 const name = window.prompt('Ürün adı', suggestedName)?.trim();
                 if (!name) return;
+                const suggestedPrice = typeof suggestedPreset?.defaultPrice === 'number' ? String(suggestedPreset.defaultPrice) : '0';
+                const unitPriceInput = window.prompt('Birim fiyat', suggestedPrice)?.trim();
+                if (!unitPriceInput) return;
+                const unitPrice = Number(unitPriceInput);
+                if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+                  setError('Geçerli bir fiyat girin.');
+                  return;
+                }
                 try {
-                  await addTableItem(t.id, t.cafeId, name, 1, 0, user);
+                  await addTableItem(t.id, t.cafeId, name, 1, unitPrice, user);
                   if (user?.cafeId) {
                     rememberRecentItemName(user.cafeId, name);
                     setRecentItems(getRecentItemNames(user.cafeId));
