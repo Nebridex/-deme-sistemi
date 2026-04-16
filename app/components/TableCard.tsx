@@ -28,12 +28,12 @@ export function TableCard({
 }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [name, setName] = useState(table.name);
+  const [deleting, setDeleting] = useState(false);
 
-  const statusCycle: CafeTable['status'][] = ['empty', 'occupied', 'payment_pending', 'closed'];
-  const nextStatus = statusCycle[(statusCycle.indexOf(table.status) + 1) % statusCycle.length];
+  const statusChoices: CafeTable['status'][] = ['empty', 'occupied', 'payment_pending', 'closed'];
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1">
           {isEditingName ? (
@@ -44,12 +44,14 @@ export function TableCard({
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={async (e) => {
                   if (e.key === 'Enter') {
+                    if (!name.trim()) return;
                     await onRename(table.id, name.trim());
                     setIsEditingName(false);
                   }
                 }}
               />
               <button className="rounded-md border px-2 text-xs" onClick={async () => {
+                if (!name.trim()) return;
                 await onRename(table.id, name.trim());
                 setIsEditingName(false);
               }}>Save</button>
@@ -60,10 +62,20 @@ export function TableCard({
           <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
             {statusLabel[table.status]}
           </p>
+          <p className="mt-1 text-xs text-slate-500">Updated {formatRelativeTime(table.lastActivityAt)}</p>
         </div>
-        <button className="rounded-md border px-2 py-1 text-xs" onClick={() => onToggleStatus(table.id, nextStatus)}>
-          Next Status
-        </button>
+        <select
+          value={table.status}
+          onChange={(e) => onToggleStatus(table.id, e.target.value as CafeTable['status'])}
+          className="rounded-md border px-2 py-1 text-xs"
+          aria-label="Table status"
+        >
+          {statusChoices.map((status) => (
+            <option key={status} value={status}>
+              {statusLabel[status]}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -77,13 +89,26 @@ export function TableCard({
         </div>
       </div>
 
-      <p className="mt-2 text-xs text-slate-500">Updated {formatRelativeTime(table.lastActivityAt)}</p>
-
       <div className="mt-3 flex flex-wrap gap-2">
         <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Open</Link>
-        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>Rename</button>
+        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>
+          {isEditingName ? 'Cancel' : 'Rename'}
+        </button>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Quick Add Item</button>
-        <button className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700" onClick={() => onDelete(table.id)}>Delete</button>
+        <button
+          className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700"
+          onClick={async () => {
+            if (!deleting) {
+              setDeleting(true);
+              return;
+            }
+            await onDelete(table.id);
+            setDeleting(false);
+          }}
+        >
+          {deleting ? 'Confirm Delete' : 'Delete'}
+        </button>
+        {deleting && <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => setDeleting(false)}>Undo</button>}
       </div>
     </article>
   );

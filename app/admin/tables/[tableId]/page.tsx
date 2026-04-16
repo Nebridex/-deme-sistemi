@@ -18,6 +18,8 @@ import {
   updateTable
 } from '@/lib/firestore';
 import { formatRelativeTime } from '@/lib/domain/time';
+import { appEnv } from '@/lib/env';
+import { getRecentItemNames, rememberRecentItemName } from '@/lib/domain/recentItems';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import type { CafeTable, TableActivityLog, TableItem } from '@/types';
 
@@ -36,6 +38,10 @@ function AdminTableDetailContent() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [optionalWarnings, setOptionalWarnings] = useState<string[]>([]);
+  const [recentItems, setRecentItems] = useState<string[]>([]);
+
+  const publicBillUrl = `${appEnv.appBaseUrl}/t/${table?.publicToken ?? ''}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(publicBillUrl)}`;
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -57,6 +63,11 @@ function AdminTableDetailContent() {
     }
     return () => unsub?.();
   }, [tableId]);
+
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    setRecentItems(getRecentItemNames(user.cafeId));
+  }, [user?.cafeId]);
 
   useEffect(() => {
     if (!user?.cafeId) return;
@@ -117,6 +128,10 @@ function AdminTableDetailContent() {
       } else {
         await addTableItem(tableId, table.cafeId, name.trim(), quantity, unitPrice, user);
       }
+      if (user?.cafeId) {
+        rememberRecentItemName(user.cafeId, name.trim());
+        setRecentItems(getRecentItemNames(user.cafeId));
+      }
     } catch (err) {
       setError(formatFirestoreActionError(err, 'Failed to save item.'));
       return;
@@ -163,22 +178,25 @@ function AdminTableDetailContent() {
             <h1 className="text-2xl font-bold">{table.name}</h1>
             <p className="text-sm text-slate-500">Public token: {table.publicToken.slice(0, 10)}... · Updated {formatRelativeTime(table.lastActivityAt)}</p>
           </div>
-          <select
-            className="rounded-md border px-3 py-1.5 text-sm"
-            value={table.status}
-            onChange={async (e) => {
-              try {
-                await updateTable(table.id, { status: e.target.value as CafeTable['status'] }, user);
-              } catch (err) {
-                setError(formatFirestoreActionError(err, 'Failed to update table status.'));
-              }
-            }}
-          >
-            <option value="empty">empty</option>
-            <option value="occupied">occupied</option>
-            <option value="payment_pending">payment_pending</option>
-            <option value="closed">closed</option>
-          </select>
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase text-slate-500">Table status</p>
+            <select
+              className="rounded-md border px-3 py-1.5 text-sm"
+              value={table.status}
+              onChange={async (e) => {
+                try {
+                  await updateTable(table.id, { status: e.target.value as CafeTable['status'] }, user);
+                } catch (err) {
+                  setError(formatFirestoreActionError(err, 'Failed to update table status.'));
+                }
+              }}
+            >
+              <option value="empty">empty</option>
+              <option value="occupied">occupied</option>
+              <option value="payment_pending">payment_pending</option>
+              <option value="closed">closed</option>
+            </select>
+          </div>
         </div>
       </section>
 
@@ -217,8 +235,52 @@ function AdminTableDetailContent() {
               <input className="rounded-lg border px-3 py-2" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
               <input className="rounded-lg border px-3 py-2" type="number" min={0} value={unitPrice} onChange={(e) => setUnitPrice(Number(e.target.value))} required />
             </div>
+            {!!recentItems.length && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Recent item names</p>
+                <div className="flex flex-wrap gap-2">
+                  {recentItems.slice(0, 8).map((itemName) => (
+                    <button
+                      type="button"
+                      key={itemName}
+                      className="rounded-full border px-2 py-1 text-xs text-slate-700"
+                      onClick={() => setName(itemName)}
+                    >
+                      {itemName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white" type="submit">{editingId ? 'Save' : 'Add Item'}</button>
           </form>
+
+          <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm">
+            <h3 className="font-semibold">QR for this table</h3>
+            <p className="text-xs text-slate-500">Customers can scan this QR to open the live bill page.</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrUrl} alt={`QR code for ${table.name}`} className="mx-auto w-44 rounded-lg border" />
+            <div className="space-y-2">
+              <input className="w-full rounded-lg border px-2 py-1 text-xs text-slate-600" value={publicBillUrl} readOnly />
+              <div className="flex gap-2">
+                <a href={qrUrl} download={`${table.name}-qr.png`} className="rounded-md border px-3 py-1.5 text-xs">Download QR</a>
+                <button
+                  type="button"
+                  className="rounded-md border px-3 py-1.5 text-xs"
+                  onClick={() => {
+                    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+                    if (!printWindow) return;
+                    printWindow.document.write(`<html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="${qrUrl}" style="width:320px;height:320px;" /></body></html>`);
+                    printWindow.document.close();
+                    printWindow.focus();
+                    printWindow.print();
+                  }}
+                >
+                  Print QR
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <h3 className="mb-2 font-semibold">Last Activity</h3>
