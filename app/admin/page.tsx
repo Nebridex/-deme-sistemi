@@ -13,6 +13,7 @@ import { formatDateTime, getStartOfTodayTimestamp } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
 import {
   addTableItem,
+  completeTableSession,
   createTable,
   createTemporaryOrder,
   entityTypeLabel,
@@ -335,6 +336,14 @@ function AdminDashboardContent() {
                       onRename={(id, name) => updateTable(id, { name }, user)}
                       onToggleStatus={(id, status) => updateTable(id, { status }, user)}
                       onQuickAdd={renderQuickAdd}
+                      onComplete={async (t) => {
+                        try {
+                          await completeTableSession(t.id, user);
+                        } catch (err) {
+                          setError(formatFirestoreActionError(err, 'Adisyon tamamlanamadı.'));
+                        }
+                      }}
+                      completeLabel="Adisyonu Kapat"
                     />
                   ))}
                   {!groupedFixed.occupied.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Dolu sabit masa yok.</div>}
@@ -385,6 +394,18 @@ function AdminDashboardContent() {
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Link href={`/admin/tables/${table.id}`} className="rounded-md border px-2 py-1 text-xs">Detay</Link>
                       <button className="rounded-md border px-2 py-1 text-xs" onClick={() => renderQuickAdd(table)}>Hızlı Ürün</button>
+                      <button
+                        className="rounded-md border border-indigo-300 px-2 py-1 text-xs text-indigo-700"
+                        onClick={async () => {
+                          try {
+                            await completeTableSession(table.id, user);
+                          } catch (err) {
+                            setError(formatFirestoreActionError(err, 'Geçici sipariş tamamlanamadı.'));
+                          }
+                        }}
+                      >
+                        Tamamla
+                      </button>
                     </div>
                   </article>
                 ))}

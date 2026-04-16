@@ -7,6 +7,7 @@ import { AuthGuard } from '@/app/components/AuthGuard';
 import { BillSummary } from '@/app/components/BillSummary';
 import {
   addTableItem,
+  completeTableSession,
   entityTypeLabel,
   editTableItem,
   formatCurrency,
@@ -167,6 +168,18 @@ function AdminTableDetailContent() {
               QR Yenile
             </button>
           )}
+          <button
+            className="rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700"
+            onClick={async () => {
+              try {
+                await completeTableSession(table.id, user);
+              } catch (err) {
+                setError(formatFirestoreActionError(err, 'Adisyon tamamlanamadı.'));
+              }
+            }}
+          >
+            {(table.entityType ?? 'fixed_table') === 'fixed_table' ? 'Adisyonu Kapat' : 'Siparişi Tamamla'}
+          </button>
         </div>
       </div>
 

@@ -406,29 +406,71 @@ export async function createTemporaryOrder(name: string, actor?: AdminIdentity |
 
 export async function completeTableSession(tableId: string, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
-  const { table, items, timestamp } = await createCompletedSessionSnapshot(tableId, actor);
+  let table: { id: string } & Omit<CafeTable, 'id'>;
+  let items: Array<{ id: string } & Omit<TableItem, 'id'>>;
+  let timestamp: number;
+  try {
+    const snapshot = await createCompletedSessionSnapshot(tableId, actor);
+    table = snapshot.table;
+    items = snapshot.items;
+    timestamp = snapshot.timestamp;
+  } catch (err) {
+    throw new Error(`Tamamlanan adisyon kaydı oluşturulamadı (completedSessions/${tableId}): ${toFirebaseErrorMessage(err)}`);
+  }
 
-  await Promise.all(
-    items.map((item) => updateDoc(doc(db, itemsCollection, item.id), {
-      cafeId: item.cafeId,
-      tableId: item.tableId,
-      name: item.name,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      createdAt: item.createdAt,
-      deletedAt: timestamp,
-      updatedAt: timestamp
-    }))
-  );
+  for (const item of items) {
+    try {
+      await updateDoc(doc(db, itemsCollection, item.id), {
+        cafeId: item.cafeId,
+        tableId: item.tableId,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        createdAt: item.createdAt,
+        deletedAt: timestamp,
+        updatedAt: timestamp
+      });
+    } catch (err) {
+      throw new Error(`Adisyon kalemi arşivlenemedi (tableItems/${item.id}): ${toFirebaseErrorMessage(err)}`);
+    }
+  }
 
   if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
+    try {
+      await updateDoc(doc(db, tablesCollection, tableId), {
+        entityType: 'fixed_table',
+        status: 'empty',
+        totalAmount: 0,
+        itemCount: 0,
+        openedAt: null,
+        closedAt: timestamp,
+        closedAmountSnapshot: table.totalAmount,
+        lastStatusChangedAt: timestamp,
+        updatedAt: timestamp,
+        lastActivityAt: timestamp
+      });
+      await syncPublicTableProjection(tableId, table.cafeId);
+      await safeLogTableActivity({
+        tableId,
+        cafeId: table.cafeId,
+        actionType: 'table_closed',
+        message: 'Adisyon tamamlandı, masa yeni müşteri için hazır',
+        amountSnapshot: table.totalAmount,
+        actorType: 'admin',
+        actorId: actor?.uid ?? null
+      });
+    } catch (err) {
+      throw new Error(`Sabit masa kapanış güncellemesi başarısız (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
+    }
+    return;
+  }
+
+  try {
     await updateDoc(doc(db, tablesCollection, tableId), {
-      entityType: 'fixed_table',
-      status: 'empty',
-      totalAmount: 0,
-      itemCount: 0,
-      openedAt: null,
+      entityType: 'temporary_order',
+      status: 'closed',
+      deletedAt: timestamp,
       closedAt: timestamp,
       closedAmountSnapshot: table.totalAmount,
       lastStatusChangedAt: timestamp,
@@ -440,39 +482,14 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
       tableId,
       cafeId: table.cafeId,
       actionType: 'table_closed',
-      message: 'Adisyon tamamlandı, masa yeni müşteri için hazır',
+      message: 'Geçici sipariş tamamlandı ve geçmişe taşındı',
       amountSnapshot: table.totalAmount,
       actorType: 'admin',
       actorId: actor?.uid ?? null
     });
-    return;
-  }
-
-  await updateDoc(doc(db, tablesCollection, tableId), {
-    entityType: 'temporary_order',
-    status: 'closed',
-    deletedAt: timestamp,
-    closedAt: timestamp,
-    closedAmountSnapshot: table.totalAmount,
-    lastStatusChangedAt: timestamp,
-    updatedAt: timestamp,
-    lastActivityAt: timestamp
-  });
-
-  try {
-    await syncPublicTableProjection(tableId, table.cafeId);
   } catch (err) {
-    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
+    throw new Error(`Geçici sipariş kapanış güncellemesi başarısız (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
   }
-  await safeLogTableActivity({
-    tableId,
-    cafeId: table.cafeId,
-    actionType: 'table_closed',
-    message: 'Geçici sipariş tamamlandı ve geçmişe taşındı',
-    amountSnapshot: table.totalAmount,
-    actorType: 'admin',
-    actorId: actor?.uid ?? null
-  });
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
