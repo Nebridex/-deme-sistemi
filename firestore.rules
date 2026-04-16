@@ -119,6 +119,20 @@ service cloud.firestore {
         && request.resource.data.updatedAt is number;
     }
 
+    // Completion/archive path compatibility for legacy rows that may not satisfy strict shape checks anymore.
+    // Allows only soft-delete style archival writes while freezing core item fields.
+    function isTableItemArchiveUpdate() {
+      return request.resource.data.cafeId == resource.data.cafeId
+        && request.resource.data.tableId == resource.data.tableId
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.quantity == resource.data.quantity
+        && request.resource.data.unitPrice == resource.data.unitPrice
+        && request.resource.data.totalPrice == resource.data.totalPrice
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.deletedAt is number
+        && request.resource.data.updatedAt is number;
+    }
+
     function isValidLogCreate() {
       return request.resource.data.tableId is string
         && request.resource.data.cafeId is string
@@ -174,7 +188,7 @@ service cloud.firestore {
     match /tableItems/{itemId} {
       allow read: if isOwnerOrManager(resource.data.cafeId);
       allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidTableItemCreate();
-      allow update: if isOwnerOrManager(resource.data.cafeId) && isValidTableItemUpdate();
+      allow update: if isOwnerOrManager(resource.data.cafeId) && (isValidTableItemUpdate() || isTableItemArchiveUpdate());
       allow delete: if false;
     }
 

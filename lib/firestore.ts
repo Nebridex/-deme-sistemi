@@ -257,13 +257,14 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   const items = itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }));
   const timestamp = now();
   const openedAt = table.openedAt ?? table.lastActivityAt ?? table.createdAt;
+  const entityType = table.entityType ?? 'fixed_table';
 
   await addDoc(collection(db, completedSessionsCollection), {
     cafeId: table.cafeId,
     sourceTableId: table.id,
     sourceTableName: table.name,
-    sourceEntityType: table.entityType ?? 'fixed_table',
-    publicToken: table.entityType === 'fixed_table' ? table.publicToken : null,
+    sourceEntityType: entityType,
+    publicToken: entityType === 'fixed_table' ? table.publicToken : null,
     totalAmount: table.totalAmount,
     itemCount: table.itemCount,
     items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice })),
