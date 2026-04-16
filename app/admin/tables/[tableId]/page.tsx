@@ -9,6 +9,7 @@ import {
   addTableItem,
   editTableItem,
   formatCurrency,
+  formatFirestoreActionError,
   rotateTableToken,
   softDeleteTableItem,
   subscribeTableActivityLogs,
@@ -34,6 +35,7 @@ function AdminTableDetailContent() {
   const [unitPrice, setUnitPrice] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [optionalWarnings, setOptionalWarnings] = useState<string[]>([]);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -57,24 +59,44 @@ function AdminTableDetailContent() {
   }, [tableId]);
 
   useEffect(() => {
+    if (!user?.cafeId) return;
     let unsub: (() => void) | undefined;
     try {
-      unsub = subscribeTableItems(tableId, setItems, (message) => setError(message || 'Could not load items.'));
+      unsub = subscribeTableItems(user.cafeId, tableId, setItems, (message) => {
+        setItems([]);
+        setOptionalWarnings((prev) => {
+          const warning = message || 'Could not load items.';
+          return prev.includes(warning) ? prev : [...prev, warning];
+        });
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
+      setItems([]);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[admin/table-detail] optional items subscription failed', err);
+      }
     }
     return () => unsub?.();
-  }, [tableId]);
+  }, [tableId, user?.cafeId]);
 
   useEffect(() => {
+    if (!user?.cafeId) return;
     let unsub: (() => void) | undefined;
     try {
-      unsub = subscribeTableActivityLogs(tableId, setLogs, (message) => setError(message || 'Could not load logs.'));
+      unsub = subscribeTableActivityLogs(user.cafeId, tableId, setLogs, (message) => {
+        setLogs([]);
+        setOptionalWarnings((prev) => {
+          const warning = message || 'Could not load logs.';
+          return prev.includes(warning) ? prev : [...prev, warning];
+        });
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Firestore unavailable.');
+      setLogs([]);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[admin/table-detail] optional logs subscription failed', err);
+      }
     }
     return () => unsub?.();
-  }, [tableId]);
+  }, [tableId, user?.cafeId]);
 
   const editingItem = useMemo(() => items.find((i) => i.id === editingId), [items, editingId]);
   useEffect(() => {
@@ -96,7 +118,7 @@ function AdminTableDetailContent() {
         await addTableItem(tableId, table.cafeId, name.trim(), quantity, unitPrice, user);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save item.');
+      setError(formatFirestoreActionError(err, 'Failed to save item.'));
       return;
     }
     setName(''); setQuantity(1); setUnitPrice(0); setEditingId(null);
@@ -115,7 +137,11 @@ function AdminTableDetailContent() {
             <button
               className="rounded-md border border-amber-300 px-3 py-1.5 text-sm text-amber-700"
               onClick={async () => {
-                await rotateTableToken(table, user);
+                try {
+                  await rotateTableToken(table, user);
+                } catch (err) {
+                  setError(formatFirestoreActionError(err, 'Failed to rotate token.'));
+                }
               }}
             >
               Rotate Token
@@ -125,6 +151,11 @@ function AdminTableDetailContent() {
       </div>
 
       {error && <div className="mb-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+      {!!optionalWarnings.length && process.env.NODE_ENV !== 'production' && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+          Optional Firestore reads failed: {optionalWarnings.join(' | ')}
+        </div>
+      )}
 
       <section className="rounded-xl bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -135,7 +166,13 @@ function AdminTableDetailContent() {
           <select
             className="rounded-md border px-3 py-1.5 text-sm"
             value={table.status}
-            onChange={(e) => updateTable(table.id, { status: e.target.value as CafeTable['status'] }, user)}
+            onChange={async (e) => {
+              try {
+                await updateTable(table.id, { status: e.target.value as CafeTable['status'] }, user);
+              } catch (err) {
+                setError(formatFirestoreActionError(err, 'Failed to update table status.'));
+              }
+            }}
           >
             <option value="empty">empty</option>
             <option value="occupied">occupied</option>
@@ -154,7 +191,18 @@ function AdminTableDetailContent() {
               <div className="flex items-center justify-between"><div><p className="font-medium">{item.name}</p><p className="text-sm text-slate-500">{item.quantity} × {formatCurrency(item.unitPrice)}</p></div><p className="font-semibold">{formatCurrency(item.totalPrice)}</p></div>
               <div className="mt-2 flex gap-2">
                 <button className="rounded-md border px-2 py-1 text-xs" onClick={() => setEditingId(item.id)}>Edit</button>
-                <button className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-700" onClick={() => softDeleteTableItem(item.id, tableId, table.cafeId, user)}>Remove</button>
+                <button
+                  className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-700"
+                  onClick={async () => {
+                    try {
+                      await softDeleteTableItem(item.id, tableId, table.cafeId, user);
+                    } catch (err) {
+                      setError(formatFirestoreActionError(err, 'Failed to remove item.'));
+                    }
+                  }}
+                >
+                  Remove
+                </button>
               </div>
             </div>
           ))}

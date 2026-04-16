@@ -8,7 +8,7 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { adminLogout } from '@/lib/auth';
 import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
-import { addTableItem, createTable, formatCurrency, softDeleteTable, subscribeTables, updateTable } from '@/lib/firestore';
+import { addTableItem, createTable, formatCurrency, formatFirestoreActionError, softDeleteTable, subscribeTables, updateTable } from '@/lib/firestore';
 import type { CafeTable } from '@/types';
 
 function AdminDashboardContent() {
@@ -76,8 +76,8 @@ function AdminDashboardContent() {
     try {
       await createTable(trimmed, user);
       setNewTableName('');
-    } catch {
-      setError('Could not create table. Please retry.');
+    } catch (err) {
+      setError(formatFirestoreActionError(err, 'Could not create table. Please retry.'));
     } finally {
       setIsCreating(false);
     }
@@ -128,7 +128,11 @@ function AdminDashboardContent() {
               onQuickAdd={async (t) => {
                 const name = window.prompt('Item name', 'Americano')?.trim();
                 if (!name) return;
-                await addTableItem(t.id, t.cafeId, name, 1, 0, user);
+                try {
+                  await addTableItem(t.id, t.cafeId, name, 1, 0, user);
+                } catch (err) {
+                  setError(formatFirestoreActionError(err, 'Could not add item. Please retry.'));
+                }
               }}
             />
           ))}
