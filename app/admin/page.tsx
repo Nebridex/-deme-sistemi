@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthGuard } from '@/app/components/AuthGuard';
 import { TableCard } from '@/app/components/TableCard';
@@ -10,8 +11,8 @@ import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { formatDateTime, getStartOfTodayTimestamp } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
-import { addTableItem, createTable, formatCurrency, formatFirestoreActionError, softDeleteTable, subscribeCafeActivityLogs, subscribeRecentTableItems, subscribeTables, updateTable } from '@/lib/firestore';
-import type { CafeTable, TableActivityLog, TableItem } from '@/types';
+import { addTableItem, createTable, formatCurrency, formatFirestoreActionError, softDeleteTable, subscribeCafeActivityLogs, subscribeRecentTableItems, subscribeTables, subscribeTodayClosedLogs, updateTable } from '@/lib/firestore';
+import type { CafeTable, TableActivityLog } from '@/types';
 
 function AdminDashboardContent() {
   const router = useRouter();
@@ -25,7 +26,17 @@ function AdminDashboardContent() {
   const [recentItems, setRecentItems] = useState<string[]>([]);
   const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
   const [recentLogs, setRecentLogs] = useState<TableActivityLog[]>([]);
+  const [todayClosedLogs, setTodayClosedLogs] = useState<TableActivityLog[]>([]);
   const [topItemsToday, setTopItemsToday] = useState<Array<{ name: string; count: number }>>([]);
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    paymentPending: false,
+    occupied: false,
+    empty: false,
+    closed: true,
+    recentActivity: true
+  });
+
+  const sectionStorageKey = `odeme-dashboard-collapsed-${user?.cafeId ?? DEFAULT_CAFE_ID}`;
 
   useEffect(() => {
     setOffline(!navigator.onLine);
@@ -46,12 +57,35 @@ function AdminDashboardContent() {
   }, [user?.cafeId]);
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(sectionStorageKey);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as Record<string, boolean>;
+      setCollapsedSections((prev) => ({ ...prev, ...parsed }));
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] collapsed sections load failed', err);
+    }
+  }, [sectionStorageKey]);
+
+  useEffect(() => {
     if (!user?.cafeId) return;
     let unsub: (() => void) | undefined;
     try {
       unsub = subscribeCafeActivityLogs(user.cafeId, setRecentLogs);
     } catch (err) {
       if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] logs subscription failed', err);
+    }
+    return () => unsub?.();
+  }, [user?.cafeId]);
+
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    const startOfToday = getStartOfTodayTimestamp();
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTodayClosedLogs(user.cafeId, startOfToday, setTodayClosedLogs);
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] today closed logs subscription failed', err);
     }
     return () => unsub?.();
   }, [user?.cafeId]);
@@ -104,21 +138,34 @@ function AdminDashboardContent() {
   const summary = useMemo(() => {
     const active = tables.filter((table) => table.status !== 'closed');
     const startOfToday = getStartOfTodayTimestamp();
+    const closedTodayFallback = tables.filter((table) => typeof table.closedAt === 'number' && table.closedAt >= startOfToday);
     const paymentPendingCount = tables.filter((table) => table.status === 'payment_pending').length;
-    const closedToday = recentLogs.filter((log) => log.actionType === 'table_closed' && log.createdAt >= startOfToday);
-    const closedTodayRevenue = closedToday.reduce((sum, log) => sum + (log.amountSnapshot ?? 0), 0);
+    const closedTodayRevenueFromLogs = todayClosedLogs.reduce((sum, log) => {
+      if (typeof log.amountSnapshot === 'number') return sum + log.amountSnapshot;
+      const fallbackTable = tables.find((table) => table.id === log.tableId);
+      if (fallbackTable?.closedAt && fallbackTable.closedAt >= startOfToday && typeof fallbackTable.closedAmountSnapshot === 'number') {
+        return sum + fallbackTable.closedAmountSnapshot;
+      }
+      return sum;
+    }, 0);
+    const closedTodayRevenueFallback = closedTodayFallback.reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
+    const todayClosedCount = todayClosedLogs.length || closedTodayFallback.length;
+    const todayClosedRevenue = todayClosedLogs.length ? closedTodayRevenueFromLogs : closedTodayRevenueFallback;
+    const closedTotalSnapshot = tables
+      .filter((table) => table.status === 'closed')
+      .reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
 
     return {
       activeCount: active.length,
       occupiedCount: tables.filter((table) => table.status === 'occupied').length,
       closedCount: tables.filter((table) => table.status === 'closed').length,
       paymentPendingCount,
-      totalAmount: active.reduce((sum, table) => sum + table.totalAmount, 0),
-      totalItemCount: active.reduce((sum, table) => sum + table.itemCount, 0),
-      todayClosedCount: closedToday.length,
-      todayClosedRevenue: closedTodayRevenue
+      openAccountAmount: active.reduce((sum, table) => sum + table.totalAmount, 0),
+      closedTotalSnapshot,
+      todayClosedCount,
+      todayClosedRevenue
     };
-  }, [recentLogs, tables]);
+  }, [tables, todayClosedLogs]);
 
   const groupedTables = useMemo(() => ({
     paymentPending: tables.filter((table) => table.status === 'payment_pending'),
@@ -132,6 +179,36 @@ function AdminDashboardContent() {
     { key: 'occupied', title: 'Aktif Dolu Masalar', description: 'Servis devam ediyor', style: 'border-emerald-200 bg-emerald-50/40' },
     { key: 'empty', title: 'Boş Masalar', description: 'Yeni müşteri için hazır', style: 'border-slate-200 bg-white' }
   ];
+
+  const toggleSection = (sectionKey: string) => {
+    setCollapsedSections((prev) => {
+      const next = { ...prev, [sectionKey]: !prev[sectionKey] };
+      localStorage.setItem(sectionStorageKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const renderQuickAdd = async (table: CafeTable, suggestedName = recentItems[0] || presetItems[0]?.name || 'Çay') => {
+    const name = window.prompt('Ürün adı', suggestedName)?.trim();
+    if (!name) return;
+    const suggestedPrice = typeof presetItems[0]?.defaultPrice === 'number' ? String(presetItems[0].defaultPrice) : '0';
+    const unitPriceInput = window.prompt('Birim fiyat', suggestedPrice)?.trim();
+    if (!unitPriceInput) return;
+    const unitPrice = Number(unitPriceInput);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      setError('Geçerli bir fiyat girin.');
+      return;
+    }
+    try {
+      await addTableItem(table.id, table.cafeId, name, 1, unitPrice, user);
+      if (user?.cafeId) {
+        rememberRecentItemName(user.cafeId, name);
+        setRecentItems(getRecentItemNames(user.cafeId));
+      }
+    } catch (err) {
+      setError(formatFirestoreActionError(err, 'Ürün eklenemedi. Lütfen tekrar deneyin.'));
+    }
+  };
 
   const addTable = async (event: FormEvent) => {
     event.preventDefault();
@@ -165,15 +242,14 @@ function AdminDashboardContent() {
           }}>Çıkış</button>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Masalar</p><p className="text-xl font-semibold">{summary.activeCount}</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Tutar</p><p className="text-xl font-semibold">{formatCurrency(summary.totalAmount)}</p></div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="rounded-lg bg-emerald-50 p-3 ring-1 ring-emerald-200"><p className="text-xs text-emerald-700">Açık Hesap Tutarı</p><p className="text-xl font-semibold text-emerald-900">{formatCurrency(summary.openAccountAmount)}</p></div>
           <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs text-amber-700">Ödeme Bekleyen Masa</p><p className="text-xl font-semibold text-amber-800">{summary.paymentPendingCount}</p></div>
           <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Dolu Masa</p><p className="text-xl font-semibold">{summary.occupiedCount}</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Kapalı Masa</p><p className="text-xl font-semibold">{summary.closedCount}</p></div>
+          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Kapalı Masa</p><p className="text-xl font-semibold">{summary.closedCount}</p><p className="text-[11px] text-slate-500">{formatCurrency(summary.closedTotalSnapshot)}</p></div>
+          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Masalar</p><p className="text-xl font-semibold">{summary.activeCount}</p></div>
           <div className="rounded-lg bg-violet-50 p-3"><p className="text-xs text-violet-700">Bugün Kapanan Masa</p><p className="text-xl font-semibold text-violet-800">{summary.todayClosedCount}</p></div>
-          <div className="rounded-lg bg-violet-50 p-3 md:col-span-2 xl:col-span-1"><p className="text-xs text-violet-700">Bugünkü Kapanan Masa Cirosu</p><p className="text-xl font-semibold text-violet-800">{formatCurrency(summary.todayClosedRevenue)}</p><p className="text-[11px] text-violet-600">Bugünkü Ciro</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Ürünler</p><p className="text-xl font-semibold">{summary.totalItemCount}</p></div>
+          <div className="rounded-lg bg-violet-50 p-3 ring-1 ring-violet-200"><p className="text-xs text-violet-700">Bugünkü Kapanan Masa Cirosu</p><p className="text-xl font-semibold text-violet-800">{formatCurrency(summary.todayClosedRevenue)}</p><p className="text-[11px] text-violet-600">Kapanışlardan hesaplanır</p></div>
         </div>
 
         <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={addTable}>
@@ -211,18 +287,24 @@ function AdminDashboardContent() {
       {loading && <div className="rounded-xl bg-white p-6 text-center text-slate-500">Masalar yükleniyor...</div>}
 
       {!loading && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {tableSections.map((section) => {
             const sectionTables = groupedTables[section.key];
+            const collapsed = collapsedSections[section.key];
             return (
-              <section key={section.key} className={`rounded-xl border p-4 ${section.style}`}>
-                <div className="mb-3">
-                  <h2 className="text-lg font-semibold">{section.title}</h2>
-                  <p className="text-xs text-slate-600">{section.description} · {sectionTables.length} masa</p>
+              <section key={section.key} className={`rounded-xl border p-3 ${section.style}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base font-semibold">{section.title}</h2>
+                    <p className="text-xs text-slate-600">{section.description} · {sectionTables.length} masa</p>
+                  </div>
+                  <button type="button" className="rounded-md border bg-white px-2 py-1 text-xs" onClick={() => toggleSection(section.key)}>
+                    {collapsed ? 'Genişlet' : 'Daralt'}
+                  </button>
                 </div>
-                {!sectionTables.length && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">Bu grupta masa yok.</div>}
-                {!!sectionTables.length && (
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {!collapsed && !sectionTables.length && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">Bu grupta masa yok.</div>}
+                {!collapsed && !!sectionTables.length && (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                     {sectionTables.map((table) => (
                       <TableCard
                         key={table.id}
@@ -230,29 +312,7 @@ function AdminDashboardContent() {
                         onDelete={(tableId) => softDeleteTable(tableId, user)}
                         onRename={(id, name) => updateTable(id, { name }, user)}
                         onToggleStatus={(id, status) => updateTable(id, { status }, user)}
-                        onQuickAdd={async (t) => {
-                          const suggestedPreset = presetItems[0];
-                          const suggestedName = recentItems[0] || suggestedPreset?.name || 'Çay';
-                          const name = window.prompt('Ürün adı', suggestedName)?.trim();
-                          if (!name) return;
-                          const suggestedPrice = typeof suggestedPreset?.defaultPrice === 'number' ? String(suggestedPreset.defaultPrice) : '0';
-                          const unitPriceInput = window.prompt('Birim fiyat', suggestedPrice)?.trim();
-                          if (!unitPriceInput) return;
-                          const unitPrice = Number(unitPriceInput);
-                          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-                            setError('Geçerli bir fiyat girin.');
-                            return;
-                          }
-                          try {
-                            await addTableItem(t.id, t.cafeId, name, 1, unitPrice, user);
-                            if (user?.cafeId) {
-                              rememberRecentItemName(user.cafeId, name);
-                              setRecentItems(getRecentItemNames(user.cafeId));
-                            }
-                          } catch (err) {
-                            setError(formatFirestoreActionError(err, 'Ürün eklenemedi. Lütfen tekrar deneyin.'));
-                          }
-                        }}
+                        onQuickAdd={renderQuickAdd}
                       />
                     ))}
                   </div>
@@ -261,51 +321,60 @@ function AdminDashboardContent() {
             );
           })}
 
-          <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
-            <div className="mb-3">
-              <h2 className="text-lg font-semibold text-violet-900">Kapanan Masalar</h2>
-              <p className="text-xs text-violet-700">Aktif operasyonu dağıtmadan geçmiş kapanışları görüntüleyin.</p>
-            </div>
-            {!groupedTables.closed.length && <div className="rounded-lg border border-dashed border-violet-200 bg-white p-4 text-sm text-violet-700">Henüz kapanmış masa yok.</div>}
-            {!!groupedTables.closed.length && (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {groupedTables.closed.map((table) => (
-                  <TableCard
-                    key={table.id}
-                    table={table}
-                    onDelete={(tableId) => softDeleteTable(tableId, user)}
-                    onRename={(id, name) => updateTable(id, { name }, user)}
-                    onToggleStatus={(id, status) => updateTable(id, { status }, user)}
-                    onQuickAdd={async (t) => {
-                      const suggestedName = recentItems[0] || 'Çay';
-                      const name = window.prompt('Ürün adı', suggestedName)?.trim();
-                      if (!name) return;
-                      const unitPriceInput = window.prompt('Birim fiyat', '0')?.trim();
-                      if (!unitPriceInput) return;
-                      const unitPrice = Number(unitPriceInput);
-                      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-                        setError('Geçerli bir fiyat girin.');
-                        return;
-                      }
-                      try {
-                        await addTableItem(t.id, t.cafeId, name, 1, unitPrice, user);
-                      } catch (err) {
-                        setError(formatFirestoreActionError(err, 'Ürün eklenemedi. Lütfen tekrar deneyin.'));
-                      }
-                    }}
-                  />
-                ))}
+          <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold text-violet-900">Kapanan Masalar</h2>
+                <p className="text-xs text-violet-700">Arşiv görünümü · {groupedTables.closed.length} masa · {formatCurrency(summary.closedTotalSnapshot)}</p>
               </div>
+              <button type="button" className="rounded-md border border-violet-200 bg-white px-2 py-1 text-xs" onClick={() => toggleSection('closed')}>
+                {collapsedSections.closed ? 'Genişlet' : 'Daralt'}
+              </button>
+            </div>
+            {!collapsedSections.closed && !groupedTables.closed.length && <div className="rounded-lg border border-dashed border-violet-200 bg-white p-3 text-sm text-violet-700">Henüz kapanmış masa yok.</div>}
+            {!collapsedSections.closed && !!groupedTables.closed.length && (
+              <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {groupedTables.closed.map((table) => (
+                  <li key={table.id} className="rounded-lg border border-violet-200 bg-white p-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-slate-900">{table.name}</p>
+                      <p className="text-xs font-semibold text-violet-700">{formatCurrency(table.closedAmountSnapshot ?? table.totalAmount)}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">Kapanış: {formatDateTime(table.closedAt)}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Link href={`/admin/tables/${table.id}`} className="rounded-md border px-2 py-1 text-xs">Detay</Link>
+                      <button
+                        type="button"
+                        className="rounded-md border border-emerald-200 px-2 py-1 text-xs text-emerald-700"
+                        onClick={async () => {
+                          try {
+                            await updateTable(table.id, { status: 'empty' }, user);
+                          } catch (err) {
+                            setError(formatFirestoreActionError(err, 'Masa tekrar açılamadı.'));
+                          }
+                        }}
+                      >
+                        Yeniden Aç
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
 
           <section className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-lg font-semibold">Son İşlemler</h2>
-              {!recentLogs.length && <p className="mt-2 text-sm text-slate-500">Son işlem bulunamadı.</p>}
-              {!!recentLogs.length && (
-                <ul className="mt-3 space-y-2 text-sm">
-                  {recentLogs.slice(0, 8).map((log) => (
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-base font-semibold">Son İşlemler</h2>
+                <button type="button" className="rounded-md border px-2 py-1 text-xs" onClick={() => toggleSection('recentActivity')}>
+                  {collapsedSections.recentActivity ? 'Genişlet' : 'Daralt'}
+                </button>
+              </div>
+              {!collapsedSections.recentActivity && !recentLogs.length && <p className="mt-2 text-sm text-slate-500">Son işlem bulunamadı.</p>}
+              {!collapsedSections.recentActivity && !!recentLogs.length && (
+                <ul className="mt-2 space-y-2 text-sm">
+                  {recentLogs.slice(0, 6).map((log) => (
                     <li key={log.id} className="rounded-lg bg-slate-50 p-2">
                       <p>{log.message}</p>
                       <p className="text-xs text-slate-500">{formatDateTime(log.createdAt)}</p>
@@ -314,11 +383,11 @@ function AdminDashboardContent() {
                 </ul>
               )}
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-lg font-semibold">En Çok Eklenen Ürünler</h2>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <h2 className="text-base font-semibold">En Çok Eklenen Ürünler</h2>
               {!topItemsToday.length && <p className="mt-2 text-sm text-slate-500">Bugün ürün hareketi bulunamadı.</p>}
               {!!topItemsToday.length && (
-                <ul className="mt-3 space-y-2 text-sm">
+                <ul className="mt-2 space-y-2 text-sm">
                   {topItemsToday.map((item, index) => (
                     <li key={item.name} className="flex items-center justify-between rounded-lg bg-slate-50 p-2">
                       <p>{index + 1}. {item.name}</p>

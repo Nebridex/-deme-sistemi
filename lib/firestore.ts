@@ -206,6 +206,18 @@ export function subscribeCafeActivityLogs(cafeId: string, callback: (logs: Table
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeTodayClosedLogs(cafeId: string, sinceTimestamp: number, callback: (logs: TableActivityLog[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(
+    collection(db, logsCollection),
+    where('cafeId', '==', cafeId),
+    where('actionType', '==', 'table_closed'),
+    where('createdAt', '>=', sinceTimestamp),
+    orderBy('createdAt', 'desc')
+  );
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
+}
+
 export function subscribeRecentTableItems(cafeId: string, sinceTimestamp: number, callback: (items: TableItem[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
   const q = query(
