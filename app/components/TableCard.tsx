@@ -33,12 +33,6 @@ export function TableCard({
   const statusChoices: CafeTable['status'][] = (table.entityType ?? 'fixed_table') === 'temporary_order'
     ? ['occupied', 'payment_pending', 'closed']
     : ['empty', 'occupied', 'payment_pending'];
-  const compactStatusLabel: Record<CafeTable['status'], string> = {
-    empty: 'Hazır',
-    occupied: 'Dolu',
-    payment_pending: 'Ödeme',
-    closed: 'Kapalı'
-  };
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
@@ -80,12 +74,12 @@ export function TableCard({
         <select
           value={table.status}
           onChange={(e) => onToggleStatus(table.id, e.target.value as CafeTable['status'])}
-          className="w-28 rounded-md border px-2 py-1 text-xs sm:w-32"
+          className="w-36 rounded-md border px-2 py-1 text-xs sm:w-44"
           aria-label="Masa durumu"
         >
           {statusChoices.map((status) => (
             <option key={status} value={status}>
-              {compactStatusLabel[status]}
+              {statusLabel[status]}
             </option>
           ))}
         </select>

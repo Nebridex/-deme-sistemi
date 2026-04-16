@@ -411,6 +411,7 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
 
   if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
     await updateDoc(doc(db, tablesCollection, tableId), {
+      entityType: 'fixed_table',
       status: 'empty',
       totalAmount: 0,
       itemCount: 0,
@@ -435,6 +436,7 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
   }
 
   await updateDoc(doc(db, tablesCollection, tableId), {
+    entityType: 'temporary_order',
     status: 'closed',
     deletedAt: timestamp,
     closedAt: timestamp,

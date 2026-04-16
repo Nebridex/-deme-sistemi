@@ -215,7 +215,7 @@ function AdminTableDetailContent() {
                 }
               }}
             >
-              <option value="empty">Boş</option>
+              <option value="empty">Yeni müşteri için hazır</option>
               <option value="occupied">Dolu</option>
               <option value="payment_pending">Ödeme Bekliyor</option>
               {(table.entityType ?? 'fixed_table') === 'temporary_order' && <option value="closed">Kapalı</option>}
