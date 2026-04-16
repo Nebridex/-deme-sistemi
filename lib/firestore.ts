@@ -195,6 +195,24 @@ export function subscribeTableActivityLogs(cafeId: string, tableId: string, call
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeCafeActivityLogs(cafeId: string, callback: (logs: TableActivityLog[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(collection(db, logsCollection), where('cafeId', '==', cafeId), orderBy('createdAt', 'desc'), limit(12));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
+}
+
+export function subscribeRecentTableItems(cafeId: string, sinceTimestamp: number, callback: (items: TableItem[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(
+    collection(db, itemsCollection),
+    where('cafeId', '==', cafeId),
+    where('deletedAt', '==', null),
+    where('createdAt', '>=', sinceTimestamp),
+    orderBy('createdAt', 'desc')
+  );
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }))), (err) => onError?.(err.message));
+}
+
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
   const { db } = assertFirebaseConfigured();
   const timestamp = now();
