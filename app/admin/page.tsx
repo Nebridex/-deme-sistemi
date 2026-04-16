@@ -105,7 +105,7 @@ function AdminDashboardContent() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">Kafe Yönetim Paneli</h1>
-            <p className="text-sm text-slate-600">Masaları ve canlı hesapları tek ekrandan yönetin.</p>
+            <p className="text-sm text-slate-600">Masa durumlarını ve canlı hesapları tek yerden yönetin.</p>
           </div>
           <button className="rounded-lg border px-4 py-2 text-sm" onClick={async () => {
             await adminLogout();
@@ -114,11 +114,11 @@ function AdminDashboardContent() {
         </div>
 
         <div className="mt-4 grid gap-2 md:grid-cols-5">
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Masa</p><p className="text-xl font-semibold">{summary.activeCount}</p></div>
+          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Masalar</p><p className="text-xl font-semibold">{summary.activeCount}</p></div>
           <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Tutar</p><p className="text-xl font-semibold">{formatCurrency(summary.totalAmount)}</p></div>
           <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Dolu Masa</p><p className="text-xl font-semibold">{summary.occupiedCount}</p></div>
           <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Kapalı Masa</p><p className="text-xl font-semibold">{summary.closedCount}</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Ürün</p><p className="text-xl font-semibold">{summary.totalItemCount}</p><p className="text-[11px] text-slate-400">Bugün {summary.todayActivityCount} masada işlem var</p></div>
+          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Ürünler</p><p className="text-xl font-semibold">{summary.totalItemCount}</p><p className="text-[11px] text-slate-400">Bugün {summary.todayActivityCount} masada işlem var</p></div>
         </div>
 
         <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={addTable}>
@@ -129,7 +129,7 @@ function AdminDashboardContent() {
         </form>
         {!!presetItems.length && (
           <div className="mt-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Hazır ürün kısayolları</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Hazır Ürünler</p>
             <div className="flex flex-wrap gap-2">
               {presetItems.slice(0, 6).map((item) => (
                 <span key={item.name} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
@@ -141,7 +141,7 @@ function AdminDashboardContent() {
         )}
         {!!recentItems.length && (
           <div className="mt-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Son eklenen ürünler</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Son Eklenen Ürünler</p>
             <div className="flex flex-wrap gap-2">
               {recentItems.slice(0, 6).map((itemName) => (
                 <span key={itemName} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{itemName}</span>

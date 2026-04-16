@@ -90,9 +90,9 @@ export function TableCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Detay</Link>
+        <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Aç</Link>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>
-          {isEditingName ? 'Vazgeç' : 'Adı Değiştir'}
+          {isEditingName ? 'Vazgeç' : 'Yeniden Adlandır'}
         </button>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Hızlı Ürün Ekle</button>
         <button
