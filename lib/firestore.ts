@@ -137,6 +137,7 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
       : 'occupied';
   const timestamp = now();
   const updates: Record<string, unknown> = {
+    cafeId: effectiveCafeId,
     ...totals,
     status,
     entityType: table.entityType ?? 'fixed_table',
@@ -144,7 +145,6 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     lastActivityAt: timestamp
   };
   if (status !== table.status || typeof table.lastStatusChangedAt !== 'number') updates.lastStatusChangedAt = timestamp;
-  if (!table.cafeId) updates.cafeId = effectiveCafeId;
   if (['occupied', 'payment_pending'].includes(status) && !['occupied', 'payment_pending'].includes(table.status)) {
     updates.openedAt = timestamp;
   }
