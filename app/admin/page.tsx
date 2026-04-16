@@ -114,15 +114,22 @@ function AdminDashboardContent() {
     let unsub: (() => void) | undefined;
     try {
       unsub = subscribeRecentTableItems(user.cafeId, startOfToday, (items) => {
-        const byName = new Map<string, number>();
+        const byName = new Map<string, { label: string; count: number }>();
         for (const item of items) {
-          byName.set(item.name, (byName.get(item.name) ?? 0) + item.quantity);
+          const normalized = item.name.trim().toLocaleLowerCase('tr-TR');
+          if (!normalized) continue;
+          const existing = byName.get(normalized);
+          if (existing) {
+            existing.count += item.quantity;
+            continue;
+          }
+          byName.set(normalized, { label: item.name.trim(), count: item.quantity });
         }
         setTopItemsToday(
           Array.from(byName.entries())
-            .sort((a, b) => b[1] - a[1])
+            .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 6)
-            .map(([name, count]) => ({ name, count }))
+            .map(([, value]) => ({ name: value.label, count: value.count }))
         );
       });
     } catch (err) {
@@ -176,29 +183,26 @@ function AdminDashboardContent() {
 
   const summary = useMemo(() => {
     const startOfToday = getStartOfTodayTimestamp();
-    const fixedActive = fixedTables.filter((table) => table.status !== 'closed');
+    const fixedActive = fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending');
     const temporaryOpen = temporaryOrders.filter((table) => !table.deletedAt);
+    const closedTodaySessions = completedSessions.filter((session) => session.closedAt >= startOfToday);
     const closedTodayFallback = fixedTables.filter((table) => typeof table.closedAt === 'number' && table.closedAt >= startOfToday);
-    const closedTodayRevenueFromLogs = todayClosedLogs.reduce((sum, log) => {
-      if (typeof log.amountSnapshot === 'number') return sum + log.amountSnapshot;
-      const fallbackTable = tables.find((table) => table.id === log.tableId);
-      if (fallbackTable?.closedAt && fallbackTable.closedAt >= startOfToday && typeof fallbackTable.closedAmountSnapshot === 'number') {
-        return sum + fallbackTable.closedAmountSnapshot;
-      }
-      return sum;
-    }, 0);
     const closedTodayRevenueFallback = closedTodayFallback.reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
 
     return {
       openAccountAmount: [...fixedActive, ...temporaryOpen].reduce((sum, table) => sum + table.totalAmount, 0),
-      todayClosedCount: todayClosedLogs.length || closedTodayFallback.length,
-      todayClosedRevenue: todayClosedLogs.length ? closedTodayRevenueFromLogs : closedTodayRevenueFallback,
+      todayClosedCount: closedTodaySessions.length || todayClosedLogs.length || closedTodayFallback.length,
+      todayClosedRevenue: closedTodaySessions.length
+        ? closedTodaySessions.reduce((sum, session) => sum + session.totalAmount, 0)
+        : (todayClosedLogs.length
+          ? todayClosedLogs.reduce((sum, log) => sum + (typeof log.amountSnapshot === 'number' ? log.amountSnapshot : 0), 0)
+          : closedTodayRevenueFallback),
       paymentPendingCount: fixedTables.filter((table) => table.status === 'payment_pending').length,
       occupiedCount: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending').length,
       readyCount: fixedTables.filter((table) => table.status === 'empty').length,
       temporaryOpenCount: temporaryOpen.length
     };
-  }, [fixedTables, tables, temporaryOrders, todayClosedLogs]);
+  }, [completedSessions, fixedTables, temporaryOrders, todayClosedLogs]);
 
   const groupedFixed = useMemo(
     () => ({
