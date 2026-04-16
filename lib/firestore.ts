@@ -245,12 +245,13 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = { id: tableSnap.id, ...(tableSnap.data() as Omit<CafeTable, 'id'>) };
+  const cafeId = table.cafeId ?? actor?.cafeId ?? DEFAULT_CAFE_ID;
 
   const itemsSnap = await getDocs(
     query(
       collection(db, itemsCollection),
       where('tableId', '==', tableId),
-      where('cafeId', '==', table.cafeId),
+      where('cafeId', '==', cafeId),
       where('deletedAt', '==', null)
     )
   );
@@ -260,7 +261,7 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   const entityType = table.entityType ?? 'fixed_table';
 
   await addDoc(collection(db, completedSessionsCollection), {
-    cafeId: table.cafeId,
+    cafeId,
     sourceTableId: table.id,
     sourceTableName: table.name,
     sourceEntityType: entityType,
@@ -274,7 +275,7 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
     createdAt: timestamp
   } satisfies Omit<CompletedSession, 'id'>);
 
-  return { table, items, timestamp };
+  return { table: { ...table, cafeId }, items, timestamp };
 }
 
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {

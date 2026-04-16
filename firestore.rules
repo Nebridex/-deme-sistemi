@@ -171,6 +171,43 @@ service cloud.firestore {
         && tableDoc(request.resource.data.tableId).totalAmount == request.resource.data.totalAmount;
     }
 
+    function isValidCompletedSessionItem(item) {
+      return item is map
+        && item.name is string
+        && item.name.size() > 0
+        && item.quantity is number
+        && item.quantity > 0
+        && isNonNegativeNumber(item.unitPrice)
+        && isNonNegativeNumber(item.totalPrice)
+        && item.totalPrice == item.quantity * item.unitPrice;
+    }
+
+    function isValidCompletedSessionItems(items, idx) {
+      return idx >= items.size()
+        || (isValidCompletedSessionItem(items[idx]) && isValidCompletedSessionItems(items, idx + 1));
+    }
+
+    function isValidCompletedSessionCreate() {
+      return request.resource.data.cafeId is string
+        && request.resource.data.sourceEntityType in ['fixed_table', 'temporary_order']
+        && request.resource.data.sourceTableId is string
+        && request.resource.data.sourceTableName is string
+        && request.resource.data.sourceTableName.size() > 0
+        && (request.resource.data.publicToken == null || request.resource.data.publicToken is string)
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && request.resource.data.items is list
+        && isValidCompletedSessionItems(request.resource.data.items, 0)
+        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
+        && request.resource.data.closedAt is number
+        && (request.resource.data.closedBy == null || request.resource.data.closedBy is string)
+        && request.resource.data.createdAt is number
+        && (
+          !tableExists(request.resource.data.sourceTableId)
+          || tableBelongsToCafe(request.resource.data.sourceTableId, request.resource.data.cafeId)
+        );
+    }
+
     match /cafes/{cafeId} {
       allow read: if isOwnerOrManager(cafeId);
       allow create, update, delete: if isOwner(cafeId);
@@ -229,14 +266,7 @@ service cloud.firestore {
     match /completedSessions/{sessionId} {
       allow read: if isOwnerOrManager(resource.data.cafeId);
       allow create: if isOwnerOrManager(request.resource.data.cafeId)
-        && request.resource.data.sourceEntityType in ['fixed_table', 'temporary_order']
-        && request.resource.data.sourceTableId is string
-        && request.resource.data.sourceTableName is string
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && request.resource.data.items is list
-        && request.resource.data.closedAt is number
-        && request.resource.data.createdAt is number;
+        && isValidCompletedSessionCreate();
       allow update, delete: if false;
     }
 
