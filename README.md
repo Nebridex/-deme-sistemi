@@ -54,3 +54,9 @@ If these are missing, the app shows a configuration error and blocks auth/data o
 
 ## Güvenlik sınırı
 Toplam tutar / ürün adedi / public projection bütünlüğü için üretimde Cloud Functions + Admin SDK ile tam backend otoritesi önerilir. Bu repo, o geçiş için callable sınırını ve data modelini hazırlar.
+
+## Firestore kural durumu (hardening)
+- `publicTables` yazımı artık yalnızca admin-auth ve canonical `tables` verisiyle birebir uyumlu payload kabul eder.
+- `tableItems` ve `tableActivityLogs` yazımları cafe/table ilişkisi doğrulaması ile sınırlandırılmıştır.
+- `payments`, `splitSessions`, `tableSettlements` koleksiyonları istemciye tamamen kapalıdır.
+- Geçiş dönemi uyumluluğu için client fallback projection/log yazımları hâlâ minimum ölçüde açık tutulur; callable deploy sonrası backend-only yapılmalıdır.

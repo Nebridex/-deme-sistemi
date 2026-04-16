@@ -11,7 +11,8 @@
 ### Client-writeable today
 - `tableItems`: add/edit/soft delete (owner/manager).
 - `tables`: name/status updates and soft-delete marker.
-- `tableActivityLogs`: append-only events.
+- `tableActivityLogs`: append-only events (minimum payload validation + cafe/table relation check).
+- `publicTables`: only admin-auth writes that must mirror canonical `tables` fields (token/name/status/itemCount/totalAmount).
 
 ### Backend-controlled target (recommended)
 - `tables.totalAmount` / `tables.itemCount`
@@ -38,7 +39,8 @@
 When callable integrity functions are live, tighten rules to:
 1. Block direct client updates for `tables.totalAmount`, `tables.itemCount`, `tables.publicToken`.
 2. Block direct client create/update for `publicTables`.
-3. Keep `payments`, `splitSessions`, `tableSettlements` backend-only.
+3. Move `tableActivityLogs` create to backend-only.
+4. Keep `payments`, `splitSessions`, `tableSettlements` backend-only.
 
 ## 7) Suggested Firestore indexes
 - `tables`: `(cafeId, deletedAt, createdAt)`

@@ -33,6 +33,113 @@ service cloud.firestore {
       return value is number && value >= 0;
     }
 
+    function tableDoc(tableId) {
+      return get(/databases/$(database)/documents/tables/$(tableId)).data;
+    }
+
+    function tableExists(tableId) {
+      return exists(/databases/$(database)/documents/tables/$(tableId));
+    }
+
+    function tableBelongsToCafe(tableId, cafeId) {
+      return tableExists(tableId) && tableDoc(tableId).cafeId == cafeId;
+    }
+
+    function isSafeTableCreate() {
+      return request.resource.data.cafeId is string
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
+        && request.resource.data.publicToken is string
+        && request.resource.data.publicToken.size() >= 24
+        && request.resource.data.deletedAt == null
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && request.resource.data.createdAt is number
+        && request.resource.data.updatedAt is number
+        && request.resource.data.lastActivityAt is number;
+    }
+
+    function isSafeTableUpdate() {
+      return request.resource.data.cafeId == resource.data.cafeId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
+        && request.resource.data.publicToken is string
+        && request.resource.data.publicToken.size() >= 24
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt is number
+        && request.resource.data.lastActivityAt is number;
+    }
+
+    function canMutatePublicToken() {
+      return request.resource.data.publicToken == resource.data.publicToken
+        || (isOwner(resource.data.cafeId) && request.resource.data.publicToken != resource.data.publicToken);
+    }
+
+    function isValidTableItemCreate() {
+      return request.resource.data.cafeId is string
+        && request.resource.data.tableId is string
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && isNonNegativeNumber(request.resource.data.unitPrice)
+        && isNonNegativeNumber(request.resource.data.totalPrice)
+        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
+        && request.resource.data.deletedAt == null
+        && request.resource.data.createdAt is number
+        && request.resource.data.updatedAt is number
+        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId);
+    }
+
+    function isValidTableItemUpdate() {
+      return request.resource.data.cafeId == resource.data.cafeId
+        && request.resource.data.tableId == resource.data.tableId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && isNonNegativeNumber(request.resource.data.unitPrice)
+        && isNonNegativeNumber(request.resource.data.totalPrice)
+        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt is number;
+    }
+
+    function isValidLogCreate() {
+      return request.resource.data.tableId is string
+        && request.resource.data.cafeId is string
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.actionType is string
+        && request.resource.data.actorType in ['admin', 'system']
+        && request.resource.data.createdAt is number
+        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId);
+    }
+
+    function isValidProjectionWrite() {
+      return request.resource.data.cafeId is string
+        && request.resource.data.tableId is string
+        && request.resource.data.publicToken == publicToken
+        && request.resource.data.tableName is string
+        && request.resource.data.items is list
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
+        && request.resource.data.updatedAt is number
+        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId)
+        // Temporary compatibility allowance for client fallback projection sync.
+        // Post-callable deployment: remove these mirror checks from client path and enforce backend-only writes.
+        && tableDoc(request.resource.data.tableId).publicToken == request.resource.data.publicToken
+        && tableDoc(request.resource.data.tableId).name == request.resource.data.tableName
+        && tableDoc(request.resource.data.tableId).status == request.resource.data.status
+        && tableDoc(request.resource.data.tableId).itemCount == request.resource.data.itemCount
+        && tableDoc(request.resource.data.tableId).totalAmount == request.resource.data.totalAmount;
+    }
+
     match /cafes/{cafeId} {
       allow read: if isOwnerOrManager(cafeId);
       allow create, update, delete: if isOwner(cafeId);
@@ -45,75 +152,34 @@ service cloud.firestore {
     }
 
     match /tables/{tableId} {
-      // raw table docs are admin-only
       allow read: if isOwnerOrManager(resource.data.cafeId);
-
-      allow create: if isOwnerOrManager(request.resource.data.cafeId)
-        && request.resource.data.publicToken is string
-        && request.resource.data.publicToken.size() >= 24
-        && request.resource.data.deletedAt == null;
-
+      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isSafeTableCreate();
       allow update: if isOwnerOrManager(resource.data.cafeId)
-        && request.resource.data.cafeId == resource.data.cafeId
-        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        // manager cannot rotate token, owner can
-        && (
-          request.resource.data.publicToken == resource.data.publicToken
-          || (isOwner(resource.data.cafeId) && request.resource.data.publicToken is string && request.resource.data.publicToken.size() >= 24)
-        );
-
+        && isSafeTableUpdate()
+        && canMutatePublicToken();
       allow delete: if false;
-    }
-
-    match /publicTables/{publicToken} {
-      // public anonymous read through projection only
-      allow get, list: if resource.data.deletedAt == null;
-
-      // admins can read/write projection for own cafe
-      allow create, update: if isOwnerOrManager(request.resource.data.cafeId)
-        && request.resource.data.publicToken == publicToken
-        && request.resource.data.tableId is string
-        && request.resource.data.tableName is string
-        && request.resource.data.items is list
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed'];
-
-      // allow delete for owner/manager when invalidating old token
-      allow delete: if isOwnerOrManager(resource.data.cafeId);
     }
 
     match /tableItems/{itemId} {
       allow read: if isOwnerOrManager(resource.data.cafeId);
-      allow create: if isOwnerOrManager(request.resource.data.cafeId)
-        && request.resource.data.quantity is int
-        && request.resource.data.quantity > 0
-        && isNonNegativeNumber(request.resource.data.unitPrice)
-        && isNonNegativeNumber(request.resource.data.totalPrice)
-        && request.resource.data.deletedAt == null
-        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.cafeId == request.resource.data.cafeId;
-
-      allow update: if isOwnerOrManager(resource.data.cafeId)
-        && request.resource.data.cafeId == resource.data.cafeId
-        && request.resource.data.tableId == resource.data.tableId
-        && request.resource.data.quantity is int
-        && request.resource.data.quantity > 0
-        && isNonNegativeNumber(request.resource.data.unitPrice)
-        && isNonNegativeNumber(request.resource.data.totalPrice);
-
+      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidTableItemCreate();
+      allow update: if isOwnerOrManager(resource.data.cafeId) && isValidTableItemUpdate();
       allow delete: if false;
     }
 
     match /tableActivityLogs/{logId} {
       allow read: if isOwnerOrManager(resource.data.cafeId);
-      allow create: if isOwnerOrManager(request.resource.data.cafeId)
-        && request.resource.data.tableId is string
-        && request.resource.data.message is string
-        && request.resource.data.actionType is string
-        && request.resource.data.actorType in ['admin', 'system'];
+      // Temporary compatibility allowance: client may append logs.
+      // Post-callable deployment: move this to backend-only.
+      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidLogCreate();
       allow update, delete: if false;
+    }
+
+    match /publicTables/{publicToken} {
+      allow get, list: if resource.data.deletedAt == null;
+      // Public write is denied; only authenticated cafe admins can write a table-mirrored projection.
+      allow create, update: if isOwnerOrManager(request.resource.data.cafeId) && isValidProjectionWrite();
+      allow delete: if isOwnerOrManager(resource.data.cafeId);
     }
 
     match /payments/{paymentId} {
