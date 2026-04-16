@@ -54,7 +54,7 @@ export function TableCard({
                 if (!name.trim()) return;
                 await onRename(table.id, name.trim());
                 setIsEditingName(false);
-              }}>Save</button>
+              }}>Kaydet</button>
             </div>
           ) : (
             <h3 className="text-lg font-semibold">{table.name}</h3>
@@ -62,13 +62,13 @@ export function TableCard({
           <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
             {statusLabel[table.status]}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Updated {formatRelativeTime(table.lastActivityAt)}</p>
+          <p className="mt-1 text-xs text-slate-500">Güncellendi: {formatRelativeTime(table.lastActivityAt)}</p>
         </div>
         <select
           value={table.status}
           onChange={(e) => onToggleStatus(table.id, e.target.value as CafeTable['status'])}
           className="rounded-md border px-2 py-1 text-xs"
-          aria-label="Table status"
+          aria-label="Masa durumu"
         >
           {statusChoices.map((status) => (
             <option key={status} value={status}>
@@ -80,21 +80,21 @@ export function TableCard({
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Total</p>
+          <p className="text-xs text-slate-500">Toplam</p>
           <p className="text-xl font-bold text-slate-900">{formatCurrency(table.totalAmount)}</p>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Items</p>
+          <p className="text-xs text-slate-500">Ürün</p>
           <p className="text-xl font-semibold">{table.itemCount}</p>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Open</Link>
+        <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Detay</Link>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>
-          {isEditingName ? 'Cancel' : 'Rename'}
+          {isEditingName ? 'Vazgeç' : 'Adı Değiştir'}
         </button>
-        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Quick Add Item</button>
+        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Hızlı Ürün Ekle</button>
         <button
           className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700"
           onClick={async () => {
@@ -106,9 +106,9 @@ export function TableCard({
             setDeleting(false);
           }}
         >
-          {deleting ? 'Confirm Delete' : 'Delete'}
+          {deleting ? 'Silmeyi Onayla' : 'Sil'}
         </button>
-        {deleting && <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => setDeleting(false)}>Undo</button>}
+        {deleting && <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => setDeleting(false)}>Geri Al</button>}
       </div>
     </article>
   );

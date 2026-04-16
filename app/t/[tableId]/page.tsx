@@ -31,13 +31,13 @@ export default function CustomerTablePage() {
           setIsRefreshing(false);
         },
         (message) => {
-          setError(message || 'Could not load table bill.');
+          setError(message || 'Hesap bilgisi alınamadı.');
           setLoading(false);
           setIsRefreshing(false);
         }
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Firebase unavailable.');
+      setError(err instanceof Error ? err.message : 'Firebase erişilemiyor.');
       setLoading(false);
       setIsRefreshing(false);
     }
@@ -56,11 +56,7 @@ export default function CustomerTablePage() {
     };
   }, []);
 
-  const bill: PublicTableBillView | null = useMemo(
-    () => (projection ? mapPublicProjectionToBillView(projection) : null),
-    [projection]
-  );
-
+  const bill: PublicTableBillView | null = useMemo(() => (projection ? mapPublicProjectionToBillView(projection) : null), [projection]);
   const selectedSubtotal = useMemo(() => {
     if (!bill) return 0;
     return bill.items.reduce((sum, item, idx) => {
@@ -68,36 +64,35 @@ export default function CustomerTablePage() {
       return selectedItemKeys.includes(key) ? sum + item.totalPrice : sum;
     }, 0);
   }, [bill, selectedItemKeys]);
-
   const perPersonAmount = useMemo(() => {
     if (!bill || splitCount <= 0) return 0;
     return bill.totalAmount / splitCount;
   }, [bill, splitCount]);
 
-  if (loading) return <main className="p-6 text-center text-slate-500">Loading your table...</main>;
+  if (loading) return <main className="p-6 text-center text-slate-500">Masa hesabı yükleniyor...</main>;
   if (error) return <main className="p-6 text-center text-rose-700">{error}</main>;
-  if (!bill) return <main className="p-6 text-center text-slate-500">This table link is invalid, deleted, or expired.</main>;
+  if (!bill) return <main className="p-6 text-center text-slate-500">Bağlantı geçersiz, süresi dolmuş veya masa kapatılmış.</main>;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md space-y-4 bg-slate-50 p-4">
-      {offline && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700">You are offline. Data may be stale.</div>}
-      {isRefreshing && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">Bill is being updated...</div>}
+      {offline && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700">İnternet bağlantınız yok. Veriler güncel olmayabilir.</div>}
+      {isRefreshing && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">Hesap güncelleniyor...</div>}
 
       <header className="rounded-2xl bg-white p-4 shadow-sm">
         <p className="text-xs uppercase tracking-wide text-slate-500">{DEFAULT_CAFE_NAME}</p>
         <h1 className="mt-1 text-2xl font-bold">{bill.tableName}</h1>
-        <p className="text-sm text-slate-500">Live table bill</p>
+        <p className="text-sm text-slate-500">Canlı masa hesabı</p>
       </header>
 
       <BillSummary totalAmount={bill.totalAmount} itemCount={bill.itemCount} />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Split Bill</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Hesap Bölme Önizlemesi</h2>
         <div className="mt-3 space-y-3">
           <div>
-            <p className="mb-1 text-sm font-medium text-slate-700">Equal split</p>
+            <p className="mb-1 text-sm font-medium text-slate-700">Eşit bölüşüm</p>
             <div className="flex items-center gap-2">
-              <label htmlFor="split-count" className="text-sm text-slate-600">People</label>
+              <label htmlFor="split-count" className="text-sm text-slate-600">Kişi sayısı</label>
               <input
                 id="split-count"
                 className="w-24 rounded-lg border px-3 py-2 text-sm"
@@ -113,20 +108,20 @@ export default function CustomerTablePage() {
               />
             </div>
             <p className="mt-2 text-sm text-slate-700">
-              Estimated per person: <span className="font-semibold">{formatCurrency(perPersonAmount)}</span>
+              Kişi başı tahmini: <span className="font-semibold">{formatCurrency(perPersonAmount)}</span>
             </p>
           </div>
           <div className="rounded-lg bg-slate-50 p-3">
-            <p className="text-sm font-medium text-slate-700">Item-based split preview</p>
-            <p className="text-xs text-slate-500">Select the items you want to cover (preview only).</p>
-            <p className="mt-1 text-sm text-slate-700">Selected subtotal: <span className="font-semibold">{formatCurrency(selectedSubtotal)}</span></p>
+            <p className="text-sm font-medium text-slate-700">Ürün seçerek bölüşüm</p>
+            <p className="text-xs text-slate-500">Ödeyeceğiniz ürünleri seçin (sadece önizleme).</p>
+            <p className="mt-1 text-sm text-slate-700">Seçilen tutar: <span className="font-semibold">{formatCurrency(selectedSubtotal)}</span></p>
           </div>
         </div>
       </section>
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">Items</h2>
-        {!bill.items.length && <div className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No items on this table yet.</div>}
+        <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">Ürünler</h2>
+        {!bill.items.length && <div className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">Bu masada henüz ürün eklenmemiş.</div>}
         {!!bill.items.length && (
           <ul className="space-y-3">
             {bill.items.map((item, idx) => (
@@ -144,10 +139,7 @@ export default function CustomerTablePage() {
                       checked={selectedItemKeys.includes(`${item.name}-${idx}`)}
                       onChange={(e) => {
                         const key = `${item.name}-${idx}`;
-                        setSelectedItemKeys((prev) => {
-                          if (e.target.checked) return [...prev, key];
-                          return prev.filter((entry) => entry !== key);
-                        });
+                        setSelectedItemKeys((prev) => (e.target.checked ? [...prev, key] : prev.filter((entry) => entry !== key)));
                       }}
                     />
                   </div>

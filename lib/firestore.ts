@@ -20,6 +20,11 @@ import { assertFirebaseConfigured } from '@/lib/firebase';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { generatePublicToken } from '@/lib/domain/token';
 import { calculateTableTotals } from '@/lib/domain/totals';
+import {
+  callBackendRecomputeTableAggregates,
+  callBackendRotatePublicToken,
+  callBackendSyncPublicProjection
+} from '@/lib/backendIntegrity';
 import type {
   AdminIdentity,
   CafeTable,
@@ -38,13 +43,9 @@ const publicTablesCollection = 'publicTables';
 const now = () => Date.now();
 
 function toFirebaseErrorMessage(err: unknown) {
-  if (err instanceof FirebaseError) {
-    return `${err.code}: ${err.message}`;
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return 'Unknown Firebase error';
+  if (err instanceof FirebaseError) return `${err.code}: ${err.message}`;
+  if (err instanceof Error) return err.message;
+  return 'Bilinmeyen Firebase hatası';
 }
 
 function reportDevOnlyError(context: string, err: unknown) {
@@ -69,13 +70,12 @@ async function safeLogTableActivity(input: Omit<TableActivityLog, 'id' | 'create
   try {
     await logTableActivity(input);
   } catch (err) {
-    reportDevOnlyError('Optional activity log write failed', err);
+    reportDevOnlyError('Opsiyonel aktivite logu yazılamadı', err);
   }
 }
 
-export async function syncPublicTableProjection(tableId: string, cafeId: string) {
+async function syncPublicTableProjectionDirect(tableId: string, cafeId: string) {
   const { db } = assertFirebaseConfigured();
-
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) return;
 
@@ -106,9 +106,14 @@ export async function syncPublicTableProjection(tableId: string, cafeId: string)
   await setDoc(doc(db, publicTablesCollection, table.publicToken), projection, { merge: true });
 }
 
-export async function recomputeTableAggregates(tableId: string, cafeId: string) {
-  const { db } = assertFirebaseConfigured();
+export async function syncPublicTableProjection(tableId: string, cafeId: string) {
+  const usedFunction = await callBackendSyncPublicProjection({ tableId, cafeId });
+  if (usedFunction) return;
+  await syncPublicTableProjectionDirect(tableId, cafeId);
+}
 
+async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
+  const { db } = assertFirebaseConfigured();
   const itemsSnap = await getDocs(
     query(
       collection(db, itemsCollection),
@@ -137,28 +142,23 @@ export async function recomputeTableAggregates(tableId: string, cafeId: string) 
     lastActivityAt: now()
   });
 
-  await syncPublicTableProjection(tableId, cafeId);
+  await syncPublicTableProjectionDirect(tableId, cafeId);
+}
+
+export async function recomputeTableAggregates(tableId: string, cafeId: string) {
+  const usedFunction = await callBackendRecomputeTableAggregates({ tableId, cafeId });
+  if (usedFunction) return;
+  await recomputeTableAggregatesDirect(tableId, cafeId);
 }
 
 export function subscribeTables(cafeId: string, callback: (tables: CafeTable[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(
-    collection(db, tablesCollection),
-    where('cafeId', '==', cafeId),
-    where('deletedAt', '==', null),
-    orderBy('createdAt', 'asc')
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CafeTable, 'id'>) }))),
-    (err) => onError?.(err.message)
-  );
+  const q = query(collection(db, tablesCollection), where('cafeId', '==', cafeId), where('deletedAt', '==', null), orderBy('createdAt', 'asc'));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CafeTable, 'id'>) }))), (err) => onError?.(err.message));
 }
 
 export function subscribeTableById(tableId: string, callback: (table: CafeTable | null) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-
   return onSnapshot(
     doc(db, tablesCollection, tableId),
     (snap) => {
@@ -172,7 +172,6 @@ export function subscribeTableById(tableId: string, callback: (table: CafeTable 
 
 export function subscribePublicTableByToken(token: string, callback: (table: PublicTableProjection | null) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-
   return onSnapshot(
     doc(db, publicTablesCollection, token),
     (snap) => {
@@ -186,36 +185,14 @@ export function subscribePublicTableByToken(token: string, callback: (table: Pub
 
 export function subscribeTableItems(cafeId: string, tableId: string, callback: (items: TableItem[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(
-    collection(db, itemsCollection),
-    where('cafeId', '==', cafeId),
-    where('tableId', '==', tableId),
-    where('deletedAt', '==', null),
-    orderBy('createdAt', 'asc')
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }))),
-    (err) => onError?.(err.message)
-  );
+  const q = query(collection(db, itemsCollection), where('cafeId', '==', cafeId), where('tableId', '==', tableId), where('deletedAt', '==', null), orderBy('createdAt', 'asc'));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }))), (err) => onError?.(err.message));
 }
 
 export function subscribeTableActivityLogs(cafeId: string, tableId: string, callback: (logs: TableActivityLog[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(
-    collection(db, logsCollection),
-    where('cafeId', '==', cafeId),
-    where('tableId', '==', tableId),
-    orderBy('createdAt', 'desc'),
-    limit(8)
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))),
-    (err) => onError?.(err.message)
-  );
+  const q = query(collection(db, logsCollection), where('cafeId', '==', cafeId), where('tableId', '==', tableId), orderBy('createdAt', 'desc'), limit(8));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
@@ -241,84 +218,75 @@ export async function createTable(name: string, actor?: AdminIdentity | null, ca
   try {
     await syncPublicTableProjection(ref.id, effectiveCafeId);
   } catch (err) {
-    reportDevOnlyError(`Optional public table projection sync failed for table ${ref.id}`, err);
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${ref.id}`, err);
   }
-  await safeLogTableActivity({
-    tableId: ref.id,
-    cafeId: effectiveCafeId,
-    actionType: 'table_created',
-    message: `${name} created`,
-    actorType: 'admin',
-    actorId: actor?.uid ?? null
-  });
+  await safeLogTableActivity({ tableId: ref.id, cafeId: effectiveCafeId, actionType: 'table_created', message: `${name} oluşturuldu`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export async function updateTable(tableId: string, payload: Partial<Pick<CafeTable, 'name' | 'status'>>, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
-
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
-  if (!tableSnap.exists()) throw new Error('Table not found.');
+  if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
 
   await updateDoc(doc(db, tablesCollection, tableId), { ...payload, updatedAt: now(), lastActivityAt: now() });
   try {
     await syncPublicTableProjection(tableId, table.cafeId);
   } catch (err) {
-    reportDevOnlyError(`Optional public table projection sync failed for table ${tableId}`, err);
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
   }
 
-  if (payload.name) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_renamed', message: `Renamed to ${payload.name}`, actorType: 'admin', actorId: actor?.uid ?? null });
-  if (payload.status) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_status_changed', message: `Status changed to ${payload.status}`, actorType: 'admin', actorId: actor?.uid ?? null });
+  if (payload.name) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_renamed', message: `Masa adı "${payload.name}" olarak güncellendi`, actorType: 'admin', actorId: actor?.uid ?? null });
+  if (payload.status) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_status_changed', message: `Durum ${statusLabel[payload.status]} olarak değiştirildi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
+  const functionToken = await callBackendRotatePublicToken({ tableId: table.id, actorUid: actor.uid });
+  if (functionToken) return functionToken;
+
   const { db } = assertFirebaseConfigured();
-  if (actor.role !== 'owner') throw new Error('Only owner can rotate token.');
+  if (actor.role !== 'owner') throw new Error('Sadece işletme sahibi QR bağlantısını yenileyebilir.');
 
   const newToken = generatePublicToken();
   const previousToken = table.publicToken;
 
   await updateDoc(doc(db, tablesCollection, table.id), { publicToken: newToken, updatedAt: now(), lastActivityAt: now() });
   const previousProjectionSnap = await getDoc(doc(db, publicTablesCollection, previousToken));
-  if (previousProjectionSnap.exists()) {
-    await deleteDoc(doc(db, publicTablesCollection, previousToken));
-  }
+  if (previousProjectionSnap.exists()) await deleteDoc(doc(db, publicTablesCollection, previousToken));
   try {
     await syncPublicTableProjection(table.id, table.cafeId);
   } catch (err) {
-    reportDevOnlyError(`Optional public table projection sync failed for table ${table.id}`, err);
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${table.id}`, err);
   }
-  await safeLogTableActivity({ tableId: table.id, cafeId: table.cafeId, actionType: 'token_rotated', message: 'Public token rotated', actorType: 'admin', actorId: actor.uid });
+  await safeLogTableActivity({ tableId: table.id, cafeId: table.cafeId, actionType: 'token_rotated', message: 'QR bağlantısı yenilendi', actorType: 'admin', actorId: actor.uid });
   return newToken;
 }
 
 export async function softDeleteTable(tableId: string, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
-  if (!tableSnap.exists()) throw new Error('Table not found.');
+  if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
 
   await updateDoc(doc(db, tablesCollection, tableId), { deletedAt: now(), updatedAt: now() });
-
   const itemsSnap = await getDocs(query(collection(db, itemsCollection), where('tableId', '==', tableId), where('deletedAt', '==', null)));
   await Promise.all(itemsSnap.docs.map((d) => updateDoc(doc(db, itemsCollection, d.id), { deletedAt: now(), updatedAt: now() })));
 
   try {
     await syncPublicTableProjection(tableId, table.cafeId);
   } catch (err) {
-    reportDevOnlyError(`Optional public table projection sync failed for table ${tableId}`, err);
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
   }
-  await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_deleted', message: 'Table soft-deleted', actorType: 'admin', actorId: actor?.uid ?? null });
+  await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_deleted', message: 'Masa arşive alındı', actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export async function addTableItem(tableId: string, cafeId: string, name: string, quantity: number, unitPrice: number, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
-
   await addDoc(collection(db, itemsCollection), item);
   await recomputeTableAggregates(tableId, cafeId);
-  await safeLogTableActivity({ tableId, cafeId, actionType: 'item_added', message: `${name} added`, actorType: 'admin', actorId: actor?.uid ?? null });
+  await safeLogTableActivity({ tableId, cafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export async function editTableItem(itemId: string, payload: Pick<TableItem, 'name' | 'quantity' | 'unitPrice' | 'tableId' | 'cafeId'>, actor?: AdminIdentity | null) {
@@ -326,14 +294,14 @@ export async function editTableItem(itemId: string, payload: Pick<TableItem, 'na
   const totalPrice = payload.quantity * payload.unitPrice;
   await updateDoc(doc(db, itemsCollection, itemId), { ...payload, totalPrice, updatedAt: now() });
   await recomputeTableAggregates(payload.tableId, payload.cafeId);
-  await safeLogTableActivity({ tableId: payload.tableId, cafeId: payload.cafeId, actionType: 'item_edited', message: `${payload.name} updated`, actorType: 'admin', actorId: actor?.uid ?? null });
+  await safeLogTableActivity({ tableId: payload.tableId, cafeId: payload.cafeId, actionType: 'item_edited', message: `${payload.name} güncellendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export async function softDeleteTableItem(itemId: string, tableId: string, cafeId: string, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
   await updateDoc(doc(db, itemsCollection, itemId), { deletedAt: now(), updatedAt: now() });
   await recomputeTableAggregates(tableId, cafeId);
-  await safeLogTableActivity({ tableId, cafeId, actionType: 'item_removed', message: 'Item removed', actorType: 'admin', actorId: actor?.uid ?? null });
+  await safeLogTableActivity({ tableId, cafeId, actionType: 'item_removed', message: 'Ürün kaldırıldı', actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
 export function formatFirestoreActionError(err: unknown, fallback: string) {
@@ -342,13 +310,7 @@ export function formatFirestoreActionError(err: unknown, fallback: string) {
 }
 
 export function mapPublicProjectionToBillView(projection: PublicTableProjection): PublicTableBillView {
-  return {
-    tableName: projection.tableName,
-    status: projection.status,
-    itemCount: projection.itemCount,
-    totalAmount: projection.totalAmount,
-    items: projection.items
-  };
+  return { tableName: projection.tableName, status: projection.status, itemCount: projection.itemCount, totalAmount: projection.totalAmount, items: projection.items };
 }
 
 export async function upsertCafeUser(uidValue: string, email: string, role: 'owner' | 'manager', cafeId = DEFAULT_CAFE_ID) {
@@ -356,12 +318,11 @@ export async function upsertCafeUser(uidValue: string, email: string, role: 'own
   await setDoc(doc(db, 'cafeUsers', uidValue), { uid: uidValue, email, role, cafeId, updatedAt: now(), createdAt: now() }, { merge: true });
 }
 
-export const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
+export const formatCurrency = (value: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
 
 export const statusLabel: Record<TableStatus, string> = {
-  empty: 'Empty',
-  occupied: 'Occupied',
-  payment_pending: 'Payment Pending',
-  closed: 'Closed'
+  empty: 'Boş',
+  occupied: 'Dolu',
+  payment_pending: 'Ödeme Bekliyor',
+  closed: 'Kapalı'
 };

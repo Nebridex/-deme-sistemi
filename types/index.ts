@@ -91,7 +91,37 @@ export type Payment = {
   tableId: string;
   amount: number;
   currency: 'TRY';
-  status: 'pending' | 'succeeded' | 'failed';
+  status: 'pending' | 'authorized' | 'succeeded' | 'failed' | 'canceled';
+  provider: 'manual' | 'iyzico' | 'stripe' | 'other';
+  providerReference: string | null;
+  splitSessionId: string | null;
+  payerLabel: string | null;
+  payerId: string | null;
+  createdAt: TimestampMs;
+  updatedAt: TimestampMs;
+};
+
+export type SplitSession = {
+  id: string;
+  cafeId: string;
+  tableId: string;
+  mode: 'equal' | 'item_select';
+  participantCount: number | null;
+  selectedItems: Array<{ itemName: string; quantity: number; totalPrice: number }> | null;
+  subtotal: number;
+  status: 'draft' | 'confirmed' | 'canceled';
+  createdAt: TimestampMs;
+  updatedAt: TimestampMs;
+};
+
+export type TableSettlement = {
+  id: string;
+  cafeId: string;
+  tableId: string;
+  originalAmount: number;
+  settledAmount: number;
+  remainingAmount: number;
+  status: 'open' | 'partial' | 'settled';
   createdAt: TimestampMs;
   updatedAt: TimestampMs;
 };
