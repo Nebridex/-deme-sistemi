@@ -31,12 +31,12 @@ export function subscribeAdminAuth(callback: (user: AdminIdentity | null) => voi
         const identity = await buildIdentity(user.uid, user.email);
         callback(identity);
       } catch (err) {
-        onError?.(err instanceof Error ? err.message : 'Failed to initialize admin session.');
+        onError?.(err instanceof Error ? err.message : 'Yönetici oturumu başlatılamadı.');
         callback(null);
       }
     },
     (err) => {
-      onError?.(err.message || 'Auth listener failed.');
+      onError?.(err.message || 'Kimlik doğrulama dinleyicisi başarısız.');
       callback(null);
     }
   );

@@ -13,9 +13,7 @@ export function ItemList({ items, emptyText }: { items: TableItem[]; emptyText: 
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-medium">{item.name}</p>
-              <p className="text-sm text-slate-500">
-                {item.quantity} × {formatCurrency(item.unitPrice)}
-              </p>
+              <p className="text-sm text-slate-500">{item.quantity} × {formatCurrency(item.unitPrice)}</p>
             </div>
             <p className="font-semibold">{formatCurrency(item.totalPrice)}</p>
           </div>

@@ -18,7 +18,7 @@ const missingKeys = Object.entries(firebaseConfig)
 export const isFirebaseConfigured = missingKeys.length === 0;
 export const firebaseConfigError = isFirebaseConfigured
   ? null
-  : `Missing Firebase env vars: ${missingKeys.join(', ')}`;
+  : `Eksik Firebase ortam değişkenleri: ${missingKeys.join(', ')}`;
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
@@ -34,7 +34,7 @@ export { app, db, auth };
 
 export function assertFirebaseConfigured() {
   if (!isFirebaseConfigured || !db || !auth) {
-    throw new Error(firebaseConfigError ?? 'Firebase is not configured correctly.');
+    throw new Error(firebaseConfigError ?? 'Firebase yapılandırması hatalı.');
   }
   return { db, auth };
 }
