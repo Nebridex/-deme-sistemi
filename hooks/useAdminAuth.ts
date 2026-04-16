@@ -12,7 +12,7 @@ export function useAdminAuth() {
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      setError(firebaseConfigError ?? 'Firebase env is missing.');
+      setError(firebaseConfigError ?? 'Firebase ortam değişkenleri eksik.');
       setLoading(false);
       return;
     }

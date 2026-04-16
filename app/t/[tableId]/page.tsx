@@ -87,10 +87,10 @@ export default function CustomerTablePage() {
       <BillSummary totalAmount={bill.totalAmount} itemCount={bill.itemCount} />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Hesap Bölme Önizlemesi</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Hesabı Böl</h2>
         <div className="mt-3 space-y-3">
           <div>
-            <p className="mb-1 text-sm font-medium text-slate-700">Eşit bölüşüm</p>
+            <p className="mb-1 text-sm font-medium text-slate-700">Eşit Böl</p>
             <div className="flex items-center gap-2">
               <label htmlFor="split-count" className="text-sm text-slate-600">Kişi sayısı</label>
               <input
@@ -112,7 +112,7 @@ export default function CustomerTablePage() {
             </p>
           </div>
           <div className="rounded-lg bg-slate-50 p-3">
-            <p className="text-sm font-medium text-slate-700">Ürün seçerek bölüşüm</p>
+            <p className="text-sm font-medium text-slate-700">Ürüne Göre Bölme Önizlemesi</p>
             <p className="text-xs text-slate-500">Ödeyeceğiniz ürünleri seçin (sadece önizleme).</p>
             <p className="mt-1 text-sm text-slate-700">Seçilen tutar: <span className="font-semibold">{formatCurrency(selectedSubtotal)}</span></p>
           </div>

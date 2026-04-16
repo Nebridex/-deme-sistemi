@@ -122,7 +122,7 @@ function AdminDashboardContent() {
         </div>
 
         <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={addTable}>
-          <input value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="Yeni masa adı (boş bırakılırsa otomatik)" className="w-full rounded-lg border px-3 py-2 text-sm sm:max-w-sm" />
+          <input value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="Yeni masa adı (boş bırakırsan otomatik ad verilir)" className="w-full rounded-lg border px-3 py-2 text-sm sm:max-w-sm" />
           <button disabled={isCreating} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60" type="submit">
             {isCreating ? 'Oluşturuluyor...' : 'Masa Oluştur'}
           </button>

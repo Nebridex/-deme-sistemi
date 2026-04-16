@@ -151,7 +151,7 @@ function AdminTableDetailContent() {
       <div className="mb-4 flex items-center justify-between">
         <Link href="/admin" className="text-sm text-slate-600 underline">← Panele Dön</Link>
         <div className="flex gap-2">
-          <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Müşteri Sayfasını Aç</Link>
+          <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Müşteri Hesabını Aç</Link>
           {user?.role === 'owner' && (
             <button
               className="rounded-md border border-amber-300 px-3 py-1.5 text-sm text-amber-700"
@@ -180,7 +180,7 @@ function AdminTableDetailContent() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">{table.name}</h1>
-            <p className="text-sm text-slate-500">Token: {table.publicToken.slice(0, 10)}... · Son güncelleme {formatRelativeTime(table.lastActivityAt)}</p>
+            <p className="text-sm text-slate-500">Erişim anahtarı: {table.publicToken.slice(0, 10)}... · {formatRelativeTime(table.lastActivityAt)} güncellendi</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs font-medium uppercase text-slate-500">Masa durumu</p>

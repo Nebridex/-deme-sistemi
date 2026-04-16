@@ -1,6 +1,6 @@
 {
-  "name": "Cafe Bill MVP",
-  "short_name": "CafeBill",
+  "name": "Kafe QR Hesap",
+  "short_name": "KafeHesap",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f1f5f9",

@@ -62,7 +62,7 @@ export function TableCard({
           <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
             {statusLabel[table.status]}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Güncellendi: {formatRelativeTime(table.lastActivityAt)}</p>
+          <p className="mt-1 text-xs text-slate-500">{formatRelativeTime(table.lastActivityAt)} güncellendi</p>
         </div>
         <select
           value={table.status}
