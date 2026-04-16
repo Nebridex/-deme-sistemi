@@ -241,7 +241,7 @@ export function subscribeCompletedSessions(cafeId: string, callback: (sessions: 
 }
 
 async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIdentity | null) {
-  const { db } = assertFirebaseConfigured();
+  const { db, auth } = assertFirebaseConfigured();
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = { id: tableSnap.id, ...(tableSnap.data() as Omit<CafeTable, 'id'>) };
@@ -259,8 +259,7 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   const timestamp = now();
   const openedAt = table.openedAt ?? table.lastActivityAt ?? table.createdAt;
   const entityType = table.entityType ?? 'fixed_table';
-
-  await addDoc(collection(db, completedSessionsCollection), {
+  const payload = {
     cafeId,
     sourceTableId: table.id,
     sourceTableName: table.name,
@@ -273,7 +272,40 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
     closedAt: timestamp,
     closedBy: actor?.uid ?? null,
     createdAt: timestamp
-  } satisfies Omit<CompletedSession, 'id'>);
+  } satisfies Omit<CompletedSession, 'id'>;
+
+  if (process.env.NODE_ENV !== 'production') {
+    const requiredFieldChecks = {
+      cafeId: typeof payload.cafeId === 'string',
+      sourceEntityType: payload.sourceEntityType === 'fixed_table' || payload.sourceEntityType === 'temporary_order',
+      sourceTableId: typeof payload.sourceTableId === 'string',
+      sourceTableName: typeof payload.sourceTableName === 'string' && payload.sourceTableName.length > 0,
+      totalAmount: typeof payload.totalAmount === 'number' && payload.totalAmount >= 0,
+      itemCount: typeof payload.itemCount === 'number' && payload.itemCount >= 0,
+      items: Array.isArray(payload.items),
+      itemsShape: Array.isArray(payload.items) && payload.items.every((item) =>
+        typeof item.name === 'string'
+        && item.name.length > 0
+        && typeof item.quantity === 'number'
+        && item.quantity > 0
+        && typeof item.unitPrice === 'number'
+        && item.unitPrice >= 0
+        && typeof item.totalPrice === 'number'
+        && item.totalPrice >= 0
+        && item.totalPrice === item.quantity * item.unitPrice
+      ),
+      openedAt: payload.openedAt == null || typeof payload.openedAt === 'number',
+      closedAt: typeof payload.closedAt === 'number',
+      closedBy: payload.closedBy == null || typeof payload.closedBy === 'string',
+      createdAt: typeof payload.createdAt === 'number'
+    };
+    console.log('COMPLETED SESSION AUTH UID:', auth.currentUser?.uid ?? null);
+    console.log('COMPLETED SESSION ACTOR UID:', actor?.uid ?? null);
+    console.log('COMPLETED SESSION PAYLOAD:', payload);
+    console.log('COMPLETED SESSION REQUIRED FIELD CHECKS:', requiredFieldChecks);
+  }
+
+  await addDoc(collection(db, completedSessionsCollection), payload);
 
   return { table: { ...table, cafeId }, items, timestamp };
 }

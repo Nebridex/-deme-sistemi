@@ -45,6 +45,13 @@ service cloud.firestore {
       return tableExists(tableId) && tableDoc(tableId).cafeId == cafeId;
     }
 
+    function tableCafeMatchesOrUnknown(tableId, cafeId) {
+      return !tableExists(tableId)
+        || tableDoc(tableId).cafeId == cafeId
+        || !('cafeId' in tableDoc(tableId))
+        || tableDoc(tableId).cafeId == null;
+    }
+
     function isSafeTableCreate() {
       return request.resource.data.cafeId is string
         && request.resource.data.name is string
@@ -202,10 +209,7 @@ service cloud.firestore {
         && request.resource.data.closedAt is number
         && (request.resource.data.closedBy == null || request.resource.data.closedBy is string)
         && request.resource.data.createdAt is number
-        && (
-          !tableExists(request.resource.data.sourceTableId)
-          || tableBelongsToCafe(request.resource.data.sourceTableId, request.resource.data.cafeId)
-        );
+        && tableCafeMatchesOrUnknown(request.resource.data.sourceTableId, request.resource.data.cafeId);
     }
 
     match /cafes/{cafeId} {
