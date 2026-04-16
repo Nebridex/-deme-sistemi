@@ -122,13 +122,19 @@ service cloud.firestore {
     // Completion/archive path compatibility for legacy rows that may not satisfy strict shape checks anymore.
     // Allows only soft-delete style archival writes while freezing core item fields.
     function isTableItemArchiveUpdate() {
-      return request.resource.data.cafeId == resource.data.cafeId
-        && request.resource.data.tableId == resource.data.tableId
-        && request.resource.data.name == resource.data.name
-        && request.resource.data.quantity == resource.data.quantity
-        && request.resource.data.unitPrice == resource.data.unitPrice
-        && request.resource.data.totalPrice == resource.data.totalPrice
-        && request.resource.data.createdAt == resource.data.createdAt
+      return request.resource.data.cafeId is string
+        && request.resource.data.tableId is string
+        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity > 0
+        && isNonNegativeNumber(request.resource.data.unitPrice)
+        && isNonNegativeNumber(request.resource.data.totalPrice)
+        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
+        && (resource.data.createdAt == null || request.resource.data.createdAt == resource.data.createdAt)
+        && (resource.data.createdAt != null || request.resource.data.createdAt is number)
+        && resource.data.deletedAt == null
         && request.resource.data.deletedAt is number
         && request.resource.data.updatedAt is number;
     }
@@ -188,7 +194,8 @@ service cloud.firestore {
     match /tableItems/{itemId} {
       allow read: if isOwnerOrManager(resource.data.cafeId);
       allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidTableItemCreate();
-      allow update: if isOwnerOrManager(resource.data.cafeId) && (isValidTableItemUpdate() || isTableItemArchiveUpdate());
+      allow update: if (isOwnerOrManager(resource.data.cafeId) || isOwnerOrManager(request.resource.data.cafeId))
+        && (isValidTableItemUpdate() || isTableItemArchiveUpdate());
       allow delete: if false;
     }
 

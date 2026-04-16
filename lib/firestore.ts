@@ -274,7 +274,7 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
     createdAt: timestamp
   } satisfies Omit<CompletedSession, 'id'>);
 
-  return { table, itemIds: items.map((item) => item.id), timestamp };
+  return { table, items, timestamp };
 }
 
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
@@ -406,9 +406,21 @@ export async function createTemporaryOrder(name: string, actor?: AdminIdentity |
 
 export async function completeTableSession(tableId: string, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
-  const { table, itemIds, timestamp } = await createCompletedSessionSnapshot(tableId, actor);
+  const { table, items, timestamp } = await createCompletedSessionSnapshot(tableId, actor);
 
-  await Promise.all(itemIds.map((itemId) => updateDoc(doc(db, itemsCollection, itemId), { deletedAt: timestamp, updatedAt: timestamp })));
+  await Promise.all(
+    items.map((item) => updateDoc(doc(db, itemsCollection, item.id), {
+      cafeId: item.cafeId,
+      tableId: item.tableId,
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      createdAt: item.createdAt,
+      deletedAt: timestamp,
+      updatedAt: timestamp
+    }))
+  );
 
   if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
     await updateDoc(doc(db, tablesCollection, tableId), {
