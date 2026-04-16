@@ -27,19 +27,23 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_APP_URL=https://adisyon.minifabrika.online
+NEXT_PUBLIC_APP_NAME=MiniFabrika Adisyon Pilot
+NEXT_PUBLIC_APP_DESCRIPTION=QR destekli restoran adisyon ve masa yönetimi
 ```
 
 If these are missing, the app shows a configuration error and blocks auth/data operations.
 
 ## Firebase kurulum adımları
 1. **Authentication > Email/Password** açın.
-2. Firestore veritabanını (Native mode) oluşturun.
-3. Admin kullanıcılar için `cafeUsers/{uid}` dökümanı ekleyin:
+2. **Self sign-up kapalı tutun**: kullanıcı hesaplarını Firebase Console veya Admin SDK üzerinden manuel açın (public register flow yok).
+3. Firestore veritabanını (Native mode) oluşturun.
+4. Admin kullanıcılar için `cafeUsers/{uid}` dökümanı ekleyin:
    - `cafeId`
    - `email`
    - `role` = `owner` veya `manager`
-4. Uygulama için gerekli koleksiyonları oluşturun (`tables`, `tableItems`, `publicTables`, `tableActivityLogs`).
-5. `firestore.rules` dosyasını deploy edin.
+5. Uygulama için gerekli koleksiyonları oluşturun (`tables`, `tableItems`, `publicTables`, `tableActivityLogs`, `completedSessions`).
+6. `firestore.rules` dosyasını deploy edin.
 
 ## Entegrasyon notları
 - Firebase app tek örnekli (`getApps` guard).

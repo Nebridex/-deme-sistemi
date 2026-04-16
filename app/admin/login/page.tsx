@@ -43,6 +43,7 @@ export default function AdminLoginPage() {
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center p-5">
       <div className="rounded-2xl bg-white p-5 shadow-sm">
         <h1 className="text-2xl font-bold">Yönetici Girişi</h1>
+        <p className="mt-2 text-sm text-slate-600">Bu pilot sürümde hesaplar işletme yöneticisi tarafından manuel açılır. Yeni kayıt ekranı yoktur.</p>
         <form className="mt-4 space-y-3" onSubmit={onSubmit}>
           <input required type="email" placeholder="E-posta" className="w-full rounded-lg border px-3 py-2" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input required type="password" placeholder="Şifre" className="w-full rounded-lg border px-3 py-2" value={password} onChange={(e) => setPassword(e.target.value)} />

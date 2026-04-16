@@ -1,6 +1,6 @@
 {
-  "name": "Kafe QR Hesap",
-  "short_name": "KafeHesap",
+  "name": "MiniFabrika Adisyon Pilot",
+  "short_name": "AdisyonPilot",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f1f5f9",
