@@ -3,6 +3,7 @@ export type TimestampMs = number;
 export type CafeStatus = 'active' | 'inactive';
 export type CafeUserRole = 'owner' | 'manager';
 export type TableStatus = 'empty' | 'occupied' | 'payment_pending' | 'closed';
+export type ServiceEntityType = 'fixed_table' | 'temporary_order';
 export type ActorType = 'admin' | 'system';
 
 export type Cafe = {
@@ -27,6 +28,7 @@ export type CafeTable = {
   id: string;
   cafeId: string;
   name: string;
+  entityType: ServiceEntityType;
   publicToken: string;
   status: TableStatus;
   itemCount: number;
@@ -39,6 +41,29 @@ export type CafeTable = {
   lastActivityAt: TimestampMs;
   createdAt: TimestampMs;
   updatedAt: TimestampMs;
+};
+
+export type CompletedSessionItemSnapshot = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+export type CompletedSession = {
+  id: string;
+  cafeId: string;
+  sourceTableId: string;
+  sourceTableName: string;
+  sourceEntityType: ServiceEntityType;
+  publicToken: string | null;
+  totalAmount: number;
+  itemCount: number;
+  items: CompletedSessionItemSnapshot[];
+  openedAt: TimestampMs | null;
+  closedAt: TimestampMs;
+  closedBy: string | null;
+  createdAt: TimestampMs;
 };
 
 export type TableItem = {

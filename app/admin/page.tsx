@@ -11,29 +11,48 @@ import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { formatDateTime, getStartOfTodayTimestamp } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
-import { addTableItem, createTable, formatCurrency, formatFirestoreActionError, softDeleteTable, subscribeCafeActivityLogs, subscribeRecentTableItems, subscribeTables, subscribeTodayClosedLogs, updateTable } from '@/lib/firestore';
-import type { CafeTable, TableActivityLog } from '@/types';
+import {
+  addTableItem,
+  completeTableSession,
+  createTable,
+  createTemporaryOrder,
+  entityTypeLabel,
+  formatCurrency,
+  formatFirestoreActionError,
+  softDeleteTable,
+  subscribeCafeActivityLogs,
+  subscribeCompletedSessions,
+  subscribeRecentTableItems,
+  subscribeTables,
+  subscribeTodayClosedLogs,
+  updateTable
+} from '@/lib/firestore';
+import type { CafeTable, CompletedSession, TableActivityLog } from '@/types';
 
 function AdminDashboardContent() {
   const router = useRouter();
   const { user } = useAdminAuth();
   const [tables, setTables] = useState<CafeTable[]>([]);
+  const [completedSessions, setCompletedSessions] = useState<CompletedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [newTableName, setNewTableName] = useState('');
+  const [newTemporaryName, setNewTemporaryName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreatingTemporary, setIsCreatingTemporary] = useState(false);
   const [recentItems, setRecentItems] = useState<string[]>([]);
   const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
   const [recentLogs, setRecentLogs] = useState<TableActivityLog[]>([]);
   const [todayClosedLogs, setTodayClosedLogs] = useState<TableActivityLog[]>([]);
   const [topItemsToday, setTopItemsToday] = useState<Array<{ name: string; count: number }>>([]);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    paymentPending: false,
-    occupied: false,
-    empty: false,
-    closed: true,
-    recentActivity: true
+    fixedPaymentPending: false,
+    fixedOccupied: false,
+    fixedReady: false,
+    temporaryOpen: false,
+    completedHistory: false,
+    legacyClosed: true
   });
 
   const sectionStorageKey = `odeme-dashboard-collapsed-${user?.cafeId ?? DEFAULT_CAFE_ID}`;
@@ -100,14 +119,26 @@ function AdminDashboardContent() {
         for (const item of items) {
           byName.set(item.name, (byName.get(item.name) ?? 0) + item.quantity);
         }
-        const top = Array.from(byName.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 6)
-          .map(([name, count]) => ({ name, count }));
-        setTopItemsToday(top);
+        setTopItemsToday(
+          Array.from(byName.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([name, count]) => ({ name, count }))
+        );
       });
     } catch (err) {
       if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] recent items subscription failed', err);
+    }
+    return () => unsub?.();
+  }, [user?.cafeId]);
+
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeCompletedSessions(user.cafeId, setCompletedSessions);
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] completed sessions subscription failed', err);
     }
     return () => unsub?.();
   }, [user?.cafeId]);
@@ -135,11 +166,20 @@ function AdminDashboardContent() {
     return () => unsub?.();
   }, [user?.cafeId]);
 
+  const fixedTables = useMemo(
+    () => tables.filter((table) => (table.entityType ?? 'fixed_table') === 'fixed_table'),
+    [tables]
+  );
+  const temporaryOrders = useMemo(
+    () => tables.filter((table) => (table.entityType ?? 'fixed_table') === 'temporary_order'),
+    [tables]
+  );
+
   const summary = useMemo(() => {
-    const active = tables.filter((table) => table.status !== 'closed');
     const startOfToday = getStartOfTodayTimestamp();
-    const closedTodayFallback = tables.filter((table) => typeof table.closedAt === 'number' && table.closedAt >= startOfToday);
-    const paymentPendingCount = tables.filter((table) => table.status === 'payment_pending').length;
+    const fixedActive = fixedTables.filter((table) => table.status !== 'closed');
+    const temporaryOpen = temporaryOrders.filter((table) => !table.deletedAt);
+    const closedTodayFallback = fixedTables.filter((table) => typeof table.closedAt === 'number' && table.closedAt >= startOfToday);
     const closedTodayRevenueFromLogs = todayClosedLogs.reduce((sum, log) => {
       if (typeof log.amountSnapshot === 'number') return sum + log.amountSnapshot;
       const fallbackTable = tables.find((table) => table.id === log.tableId);
@@ -149,36 +189,32 @@ function AdminDashboardContent() {
       return sum;
     }, 0);
     const closedTodayRevenueFallback = closedTodayFallback.reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
-    const todayClosedCount = todayClosedLogs.length || closedTodayFallback.length;
-    const todayClosedRevenue = todayClosedLogs.length ? closedTodayRevenueFromLogs : closedTodayRevenueFallback;
-    const closedTotalSnapshot = tables
-      .filter((table) => table.status === 'closed')
-      .reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
 
     return {
-      activeCount: active.length,
-      occupiedCount: tables.filter((table) => table.status === 'occupied').length,
-      closedCount: tables.filter((table) => table.status === 'closed').length,
-      paymentPendingCount,
-      openAccountAmount: active.reduce((sum, table) => sum + table.totalAmount, 0),
-      closedTotalSnapshot,
-      todayClosedCount,
-      todayClosedRevenue
+      openAccountAmount: [...fixedActive, ...temporaryOpen].reduce((sum, table) => sum + table.totalAmount, 0),
+      todayClosedCount: todayClosedLogs.length || closedTodayFallback.length,
+      todayClosedRevenue: todayClosedLogs.length ? closedTodayRevenueFromLogs : closedTodayRevenueFallback,
+      paymentPendingCount: fixedTables.filter((table) => table.status === 'payment_pending').length,
+      occupiedCount: fixedTables.filter((table) => table.status === 'occupied').length,
+      readyCount: fixedTables.filter((table) => table.status === 'empty').length,
+      temporaryOpenCount: temporaryOpen.length
     };
-  }, [tables, todayClosedLogs]);
+  }, [fixedTables, tables, temporaryOrders, todayClosedLogs]);
 
-  const groupedTables = useMemo(() => ({
-    paymentPending: tables.filter((table) => table.status === 'payment_pending'),
-    occupied: tables.filter((table) => table.status === 'occupied'),
-    empty: tables.filter((table) => table.status === 'empty'),
-    closed: tables.filter((table) => table.status === 'closed')
-  }), [tables]);
+  const groupedFixed = useMemo(
+    () => ({
+      paymentPending: fixedTables.filter((table) => table.status === 'payment_pending'),
+      occupied: fixedTables.filter((table) => table.status === 'occupied'),
+      ready: fixedTables.filter((table) => table.status === 'empty'),
+      legacyClosed: fixedTables.filter((table) => table.status === 'closed')
+    }),
+    [fixedTables]
+  );
 
-  const tableSections: Array<{ key: keyof typeof groupedTables; title: string; description: string; style: string }> = [
-    { key: 'paymentPending', title: 'Ödeme Bekleyen Masalar', description: 'Öncelikli işlem sırası', style: 'border-amber-300 bg-amber-50' },
-    { key: 'occupied', title: 'Aktif Dolu Masalar', description: 'Servis devam ediyor', style: 'border-emerald-200 bg-emerald-50/40' },
-    { key: 'empty', title: 'Boş Masalar', description: 'Yeni müşteri için hazır', style: 'border-slate-200 bg-white' }
-  ];
+  const activeTemporaryOrders = useMemo(
+    () => temporaryOrders.filter((table) => !table.deletedAt && table.status !== 'closed'),
+    [temporaryOrders]
+  );
 
   const toggleSection = (sectionKey: string) => {
     setCollapsedSections((prev) => {
@@ -188,7 +224,8 @@ function AdminDashboardContent() {
     });
   };
 
-  const renderQuickAdd = async (table: CafeTable, suggestedName = recentItems[0] || presetItems[0]?.name || 'Çay') => {
+  const renderQuickAdd = async (table: CafeTable) => {
+    const suggestedName = recentItems[0] || presetItems[0]?.name || 'Çay';
     const name = window.prompt('Ürün adı', suggestedName)?.trim();
     if (!name) return;
     const suggestedPrice = typeof presetItems[0]?.defaultPrice === 'number' ? String(presetItems[0].defaultPrice) : '0';
@@ -210,11 +247,10 @@ function AdminDashboardContent() {
     }
   };
 
-  const addTable = async (event: FormEvent) => {
+  const addFixedTable = async (event: FormEvent) => {
     event.preventDefault();
     if (!canManageTables(user)) return;
-    const autoName = `Masa ${tables.length + 1}`;
-    const trimmed = newTableName.trim() || autoName;
+    const trimmed = newTableName.trim() || `Masa ${fixedTables.length + 1}`;
     if (!trimmed) return;
 
     setIsCreating(true);
@@ -222,9 +258,26 @@ function AdminDashboardContent() {
       await createTable(trimmed, user);
       setNewTableName('');
     } catch (err) {
-      setError(formatFirestoreActionError(err, 'Masa oluşturulamadı. Lütfen tekrar deneyin.'));
+      setError(formatFirestoreActionError(err, 'Sabit masa oluşturulamadı.'));
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const addTemporary = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canManageTables(user)) return;
+    const trimmed = newTemporaryName.trim() || `Geçici Sipariş ${Date.now().toString().slice(-4)}`;
+    if (!trimmed) return;
+
+    setIsCreatingTemporary(true);
+    try {
+      await createTemporaryOrder(trimmed, user);
+      setNewTemporaryName('');
+    } catch (err) {
+      setError(formatFirestoreActionError(err, 'Geçici sipariş açılamadı.'));
+    } finally {
+      setIsCreatingTemporary(false);
     }
   };
 
@@ -234,7 +287,7 @@ function AdminDashboardContent() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">Kafe Yönetim Paneli</h1>
-            <p className="text-sm text-slate-600">Masa durumlarını ve canlı hesapları tek yerden yönetin.</p>
+            <p className="text-sm text-slate-600">Sabit masaları ve geçici siparişleri aynı operasyon ekranından yönetin.</p>
           </div>
           <button className="rounded-lg border px-4 py-2 text-sm" onClick={async () => {
             await adminLogout();
@@ -244,42 +297,23 @@ function AdminDashboardContent() {
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg bg-emerald-50 p-3 ring-1 ring-emerald-200"><p className="text-xs text-emerald-700">Açık Hesap Tutarı</p><p className="text-xl font-semibold text-emerald-900">{formatCurrency(summary.openAccountAmount)}</p></div>
+          <div className="rounded-lg bg-violet-50 p-3 ring-1 ring-violet-200"><p className="text-xs text-violet-700">Bugünkü Kapanan Masa Cirosu</p><p className="text-xl font-semibold text-violet-800">{formatCurrency(summary.todayClosedRevenue)}</p></div>
+          <div className="rounded-lg bg-violet-50 p-3"><p className="text-xs text-violet-700">Bugün Kapanan Masa</p><p className="text-xl font-semibold text-violet-800">{summary.todayClosedCount}</p></div>
           <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs text-amber-700">Ödeme Bekleyen Masa</p><p className="text-xl font-semibold text-amber-800">{summary.paymentPendingCount}</p></div>
           <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Dolu Masa</p><p className="text-xl font-semibold">{summary.occupiedCount}</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Kapalı Masa</p><p className="text-xl font-semibold">{summary.closedCount}</p><p className="text-[11px] text-slate-500">{formatCurrency(summary.closedTotalSnapshot)}</p></div>
-          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Aktif Masalar</p><p className="text-xl font-semibold">{summary.activeCount}</p></div>
-          <div className="rounded-lg bg-violet-50 p-3"><p className="text-xs text-violet-700">Bugün Kapanan Masa</p><p className="text-xl font-semibold text-violet-800">{summary.todayClosedCount}</p></div>
-          <div className="rounded-lg bg-violet-50 p-3 ring-1 ring-violet-200"><p className="text-xs text-violet-700">Bugünkü Kapanan Masa Cirosu</p><p className="text-xl font-semibold text-violet-800">{formatCurrency(summary.todayClosedRevenue)}</p><p className="text-[11px] text-violet-600">Kapanışlardan hesaplanır</p></div>
+          <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Açık Siparişler</p><p className="text-xl font-semibold">{summary.temporaryOpenCount}</p></div>
         </div>
 
-        <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={addTable}>
-          <input value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="Yeni masa adı (boş bırakırsan otomatik ad verilir)" className="w-full rounded-lg border px-3 py-2 text-sm sm:max-w-sm" />
-          <button disabled={isCreating} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60" type="submit">
-            {isCreating ? 'Oluşturuluyor...' : 'Masa Oluştur'}
-          </button>
-        </form>
-        {!!presetItems.length && (
-          <div className="mt-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Hazır Ürünler</p>
-            <div className="flex flex-wrap gap-2">
-              {presetItems.slice(0, 6).map((item) => (
-                <span key={item.name} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
-                  {item.name}{typeof item.defaultPrice === 'number' ? ` · ${formatCurrency(item.defaultPrice)}` : ''}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        {!!recentItems.length && (
-          <div className="mt-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Son Eklenen Ürünler</p>
-            <div className="flex flex-wrap gap-2">
-              {recentItems.slice(0, 6).map((itemName) => (
-                <span key={itemName} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{itemName}</span>
-              ))}
-            </div>
-          </div>
-        )}
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <form className="flex flex-col gap-2 sm:flex-row" onSubmit={addFixedTable}>
+            <input value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="Yeni sabit masa adı" className="w-full rounded-lg border px-3 py-2 text-sm" />
+            <button disabled={isCreating} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60" type="submit">{isCreating ? 'Oluşturuluyor...' : 'Sabit Masa Oluştur'}</button>
+          </form>
+          <form className="flex flex-col gap-2 sm:flex-row" onSubmit={addTemporary}>
+            <input value={newTemporaryName} onChange={(e) => setNewTemporaryName(e.target.value)} placeholder="Geçici sipariş adı (örn. Paket 1)" className="w-full rounded-lg border px-3 py-2 text-sm" />
+            <button disabled={isCreatingTemporary} className="rounded-lg bg-indigo-700 px-4 py-2 text-sm text-white disabled:opacity-60" type="submit">{isCreatingTemporary ? 'Açılıyor...' : 'Geçici Sipariş Aç'}</button>
+          </form>
+        </div>
       </header>
 
       {offline && <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">İnternet bağlantınız yok. Değişiklikler bağlantı gelince senkronize olur.</div>}
@@ -288,91 +322,177 @@ function AdminDashboardContent() {
 
       {!loading && (
         <div className="space-y-4">
-          {tableSections.map((section) => {
-            const sectionTables = groupedTables[section.key];
-            const collapsed = collapsedSections[section.key];
-            return (
-              <section key={section.key} className={`rounded-xl border p-3 ${section.style}`}>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div>
-                    <h2 className="text-base font-semibold">{section.title}</h2>
-                    <p className="text-xs text-slate-600">{section.description} · {sectionTables.length} masa</p>
-                  </div>
-                  <button type="button" className="rounded-md border bg-white px-2 py-1 text-xs" onClick={() => toggleSection(section.key)}>
-                    {collapsed ? 'Genişlet' : 'Daralt'}
-                  </button>
+          <section className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold">Sabit Masalar · Ödeme Bekleyen</h2>
+                <p className="text-xs text-slate-600">Aktif akış içinde öncelikli takip alanı</p>
+              </div>
+              <button className="rounded-md border px-2 py-1 text-xs" onClick={() => toggleSection('fixedPaymentPending')}>{collapsedSections.fixedPaymentPending ? 'Genişlet' : 'Daralt'}</button>
+            </div>
+            {!collapsedSections.fixedPaymentPending && (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {groupedFixed.paymentPending.map((table) => (
+                  <TableCard
+                    key={table.id}
+                    table={table}
+                    onDelete={(tableId) => softDeleteTable(tableId, user)}
+                    onRename={(id, name) => updateTable(id, { name }, user)}
+                    onToggleStatus={(id, status) => updateTable(id, { status }, user)}
+                    onQuickAdd={renderQuickAdd}
+                  />
+                ))}
+                {!groupedFixed.paymentPending.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Ödeme bekleyen sabit masa yok.</div>}
+              </div>
+            )}
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-base font-semibold">Sabit Masalar · Dolu</h2>
+                <button className="rounded-md border bg-white px-2 py-1 text-xs" onClick={() => toggleSection('fixedOccupied')}>{collapsedSections.fixedOccupied ? 'Genişlet' : 'Daralt'}</button>
+              </div>
+              {!collapsedSections.fixedOccupied && (
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {groupedFixed.occupied.map((table) => (
+                    <TableCard
+                      key={table.id}
+                      table={table}
+                      onDelete={(tableId) => softDeleteTable(tableId, user)}
+                      onRename={(id, name) => updateTable(id, { name }, user)}
+                      onToggleStatus={(id, status) => updateTable(id, { status }, user)}
+                      onQuickAdd={renderQuickAdd}
+                    />
+                  ))}
+                  {!groupedFixed.occupied.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Dolu sabit masa yok.</div>}
                 </div>
-                {!collapsed && !sectionTables.length && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">Bu grupta masa yok.</div>}
-                {!collapsed && !!sectionTables.length && (
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {sectionTables.map((table) => (
-                      <TableCard
-                        key={table.id}
-                        table={table}
-                        onDelete={(tableId) => softDeleteTable(tableId, user)}
-                        onRename={(id, name) => updateTable(id, { name }, user)}
-                        onToggleStatus={(id, status) => updateTable(id, { status }, user)}
-                        onQuickAdd={renderQuickAdd}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-            );
-          })}
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-base font-semibold">Sabit Masalar · Yeni müşteri için hazır</h2>
+                <button className="rounded-md border px-2 py-1 text-xs" onClick={() => toggleSection('fixedReady')}>{collapsedSections.fixedReady ? 'Genişlet' : 'Daralt'}</button>
+              </div>
+              {!collapsedSections.fixedReady && (
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {groupedFixed.ready.map((table) => (
+                    <TableCard
+                      key={table.id}
+                      table={table}
+                      onDelete={(tableId) => softDeleteTable(tableId, user)}
+                      onRename={(id, name) => updateTable(id, { name }, user)}
+                      onToggleStatus={(id, status) => updateTable(id, { status }, user)}
+                      onQuickAdd={renderQuickAdd}
+                    />
+                  ))}
+                  {!groupedFixed.ready.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Hazır sabit masa yok.</div>}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-indigo-900">Açık Siparişler</h2>
+                <p className="text-xs text-indigo-700">Geçici adisyonlar, kapanınca aktif listeden kalkar.</p>
+              </div>
+              <button className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs" onClick={() => toggleSection('temporaryOpen')}>{collapsedSections.temporaryOpen ? 'Genişlet' : 'Daralt'}</button>
+            </div>
+            {!collapsedSections.temporaryOpen && (
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {activeTemporaryOrders.map((table) => (
+                  <article key={table.id} className="rounded-lg border border-indigo-200 bg-white p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{table.name}</p>
+                      <p className="text-xs text-indigo-700">{entityTypeLabel[table.entityType ?? 'temporary_order']}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">Toplam: {formatCurrency(table.totalAmount)} · {table.itemCount} ürün</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Link href={`/admin/tables/${table.id}`} className="rounded-md border px-2 py-1 text-xs">Detay</Link>
+                      <button className="rounded-md border px-2 py-1 text-xs" onClick={() => renderQuickAdd(table)}>Hızlı Ürün</button>
+                      <button
+                        className="rounded-md border border-indigo-300 px-2 py-1 text-xs text-indigo-700"
+                        onClick={async () => {
+                          try {
+                            await completeTableSession(table.id, user);
+                          } catch (err) {
+                            setError(formatFirestoreActionError(err, 'Geçici sipariş tamamlanamadı.'));
+                          }
+                        }}
+                      >
+                        Tamamla
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!activeTemporaryOrders.length && <div className="rounded-lg border border-dashed border-indigo-200 bg-white p-3 text-sm text-indigo-700">Açık geçici sipariş yok.</div>}
+              </div>
+            )}
+          </section>
 
           <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-2 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-violet-900">Kapanan Masalar</h2>
-                <p className="text-xs text-violet-700">Arşiv görünümü · {groupedTables.closed.length} masa · {formatCurrency(summary.closedTotalSnapshot)}</p>
+                <h2 className="text-base font-semibold text-violet-900">Tamamlanan Siparişler / Adisyon Geçmişi</h2>
+                <p className="text-xs text-violet-700">Sabit masa kapanışları ve geçici sipariş tamamlamaları.</p>
               </div>
-              <button type="button" className="rounded-md border border-violet-200 bg-white px-2 py-1 text-xs" onClick={() => toggleSection('closed')}>
-                {collapsedSections.closed ? 'Genişlet' : 'Daralt'}
-              </button>
+              <button className="rounded-md border border-violet-200 bg-white px-2 py-1 text-xs" onClick={() => toggleSection('completedHistory')}>{collapsedSections.completedHistory ? 'Genişlet' : 'Daralt'}</button>
             </div>
-            {!collapsedSections.closed && !groupedTables.closed.length && <div className="rounded-lg border border-dashed border-violet-200 bg-white p-3 text-sm text-violet-700">Henüz kapanmış masa yok.</div>}
-            {!collapsedSections.closed && !!groupedTables.closed.length && (
+            {!collapsedSections.completedHistory && (
               <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {groupedTables.closed.map((table) => (
-                  <li key={table.id} className="rounded-lg border border-violet-200 bg-white p-2 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-slate-900">{table.name}</p>
-                      <p className="text-xs font-semibold text-violet-700">{formatCurrency(table.closedAmountSnapshot ?? table.totalAmount)}</p>
+                {completedSessions.map((session) => (
+                  <li key={session.id} className="rounded-lg border border-violet-200 bg-white p-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{session.sourceTableName}</p>
+                      <p className="text-xs text-violet-700">{session.sourceEntityType === 'fixed_table' ? 'Sabit Masa' : 'Geçici Sipariş'}</p>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">Kapanış: {formatDateTime(table.closedAt)}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Link href={`/admin/tables/${table.id}`} className="rounded-md border px-2 py-1 text-xs">Detay</Link>
+                    <p className="text-xs text-slate-500">Kapanış: {formatDateTime(session.closedAt)}</p>
+                    <p className="text-xs font-semibold text-slate-700">{formatCurrency(session.totalAmount)}</p>
+                  </li>
+                ))}
+                {!completedSessions.length && <li className="rounded-lg border border-dashed border-violet-200 bg-white p-3 text-sm text-violet-700">Henüz tamamlanan adisyon yok.</li>}
+              </ul>
+            )}
+          </section>
+
+          {!!groupedFixed.legacyClosed.length && (
+            <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-700">Eski Kapalı Sabit Masa Kayıtları (geçiş)</h2>
+                <button className="rounded-md border bg-white px-2 py-1 text-xs" onClick={() => toggleSection('legacyClosed')}>{collapsedSections.legacyClosed ? 'Genişlet' : 'Daralt'}</button>
+              </div>
+              {!collapsedSections.legacyClosed && (
+                <ul className="space-y-2">
+                  {groupedFixed.legacyClosed.map((table) => (
+                    <li key={table.id} className="flex items-center justify-between rounded-lg border bg-white p-2 text-sm">
+                      <p>{table.name}</p>
                       <button
-                        type="button"
                         className="rounded-md border border-emerald-200 px-2 py-1 text-xs text-emerald-700"
                         onClick={async () => {
                           try {
                             await updateTable(table.id, { status: 'empty' }, user);
                           } catch (err) {
-                            setError(formatFirestoreActionError(err, 'Masa tekrar açılamadı.'));
+                            setError(formatFirestoreActionError(err, 'Masa tekrar hazırlanamadı.'));
                           }
                         }}
                       >
-                        Yeniden Aç
+                        Yeni müşteri için hazır yap
                       </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           <section className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-base font-semibold">Son İşlemler</h2>
-                <button type="button" className="rounded-md border px-2 py-1 text-xs" onClick={() => toggleSection('recentActivity')}>
-                  {collapsedSections.recentActivity ? 'Genişlet' : 'Daralt'}
-                </button>
-              </div>
-              {!collapsedSections.recentActivity && !recentLogs.length && <p className="mt-2 text-sm text-slate-500">Son işlem bulunamadı.</p>}
-              {!collapsedSections.recentActivity && !!recentLogs.length && (
+              <h2 className="text-base font-semibold">Son İşlemler</h2>
+              {!recentLogs.length && <p className="mt-2 text-sm text-slate-500">Son işlem bulunamadı.</p>}
+              {!!recentLogs.length && (
                 <ul className="mt-2 space-y-2 text-sm">
                   {recentLogs.slice(0, 6).map((log) => (
                     <li key={log.id} className="rounded-lg bg-slate-50 p-2">
@@ -398,8 +518,6 @@ function AdminDashboardContent() {
               )}
             </div>
           </section>
-
-          {!tables.length && <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">Aktif masa yok. Yukarıdan ilk masanızı oluşturun.</div>}
         </div>
       )}
     </main>

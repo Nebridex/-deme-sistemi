@@ -49,6 +49,7 @@ service cloud.firestore {
       return request.resource.data.cafeId is string
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
+        && request.resource.data.entityType in ['fixed_table', 'temporary_order']
         && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
         && request.resource.data.publicToken is string
         && request.resource.data.publicToken.size() >= 24
@@ -68,6 +69,7 @@ service cloud.firestore {
       return request.resource.data.cafeId == resource.data.cafeId
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
+        && request.resource.data.entityType in ['fixed_table', 'temporary_order']
         && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
         && request.resource.data.publicToken is string
         && request.resource.data.publicToken.size() >= 24
@@ -201,6 +203,20 @@ service cloud.firestore {
 
     match /tableSettlements/{settlementId} {
       allow read, write: if false;
+    }
+
+    match /completedSessions/{sessionId} {
+      allow read: if isOwnerOrManager(resource.data.cafeId);
+      allow create: if isOwnerOrManager(request.resource.data.cafeId)
+        && request.resource.data.sourceEntityType in ['fixed_table', 'temporary_order']
+        && request.resource.data.sourceTableId is string
+        && request.resource.data.sourceTableName is string
+        && isNonNegativeNumber(request.resource.data.totalAmount)
+        && isNonNegativeNumber(request.resource.data.itemCount)
+        && request.resource.data.items is list
+        && request.resource.data.closedAt is number
+        && request.resource.data.createdAt is number;
+      allow update, delete: if false;
     }
 
     match /{document=**} {

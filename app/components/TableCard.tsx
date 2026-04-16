@@ -30,7 +30,9 @@ export function TableCard({
   const [name, setName] = useState(table.name);
   const [deleting, setDeleting] = useState(false);
 
-  const statusChoices: CafeTable['status'][] = ['empty', 'occupied', 'payment_pending', 'closed'];
+  const statusChoices: CafeTable['status'][] = (table.entityType ?? 'fixed_table') === 'temporary_order'
+    ? ['occupied', 'payment_pending', 'closed']
+    : ['empty', 'occupied', 'payment_pending'];
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow">

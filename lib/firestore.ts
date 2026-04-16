@@ -30,15 +30,18 @@ import type {
   CafeTable,
   PublicTableBillView,
   PublicTableProjection,
+  CompletedSession,
   TableActivityLog,
   TableItem,
-  TableStatus
+  TableStatus,
+  ServiceEntityType
 } from '@/types';
 
 const tablesCollection = 'tables';
 const itemsCollection = 'tableItems';
 const logsCollection = 'tableActivityLogs';
 const publicTablesCollection = 'publicTables';
+const completedSessionsCollection = 'completedSessions';
 
 const now = () => Date.now();
 
@@ -138,6 +141,7 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
   const updates: Record<string, unknown> = {
     ...totals,
     status,
+    entityType: table.entityType ?? 'fixed_table',
     updatedAt: timestamp,
     lastActivityAt: timestamp
   };
@@ -230,6 +234,48 @@ export function subscribeRecentTableItems(cafeId: string, sinceTimestamp: number
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeCompletedSessions(cafeId: string, callback: (sessions: CompletedSession[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(collection(db, completedSessionsCollection), where('cafeId', '==', cafeId), orderBy('closedAt', 'desc'), limit(12));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CompletedSession, 'id'>) }))), (err) => onError?.(err.message));
+}
+
+async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIdentity | null) {
+  const { db } = assertFirebaseConfigured();
+  const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
+  if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
+  const table = { id: tableSnap.id, ...(tableSnap.data() as Omit<CafeTable, 'id'>) };
+
+  const itemsSnap = await getDocs(
+    query(
+      collection(db, itemsCollection),
+      where('tableId', '==', tableId),
+      where('cafeId', '==', table.cafeId),
+      where('deletedAt', '==', null)
+    )
+  );
+  const items = itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }));
+  const timestamp = now();
+  const openedAt = table.openedAt ?? table.lastActivityAt ?? table.createdAt;
+
+  await addDoc(collection(db, completedSessionsCollection), {
+    cafeId: table.cafeId,
+    sourceTableId: table.id,
+    sourceTableName: table.name,
+    sourceEntityType: table.entityType ?? 'fixed_table',
+    publicToken: table.entityType === 'fixed_table' ? table.publicToken : null,
+    totalAmount: table.totalAmount,
+    itemCount: table.itemCount,
+    items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice })),
+    openedAt,
+    closedAt: timestamp,
+    closedBy: actor?.uid ?? null,
+    createdAt: timestamp
+  } satisfies Omit<CompletedSession, 'id'>);
+
+  return { table, itemIds: items.map((item) => item.id), timestamp };
+}
+
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
   const { db } = assertFirebaseConfigured();
   const timestamp = now();
@@ -239,6 +285,7 @@ export async function createTable(name: string, actor?: AdminIdentity | null, ca
   const table: Omit<CafeTable, 'id'> = {
     cafeId: effectiveCafeId,
     name,
+    entityType: 'fixed_table',
     publicToken: token,
     status: 'empty',
     totalAmount: 0,
@@ -270,6 +317,7 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
 
   const timestamp = now();
   const updates: Record<string, unknown> = { ...payload, updatedAt: timestamp, lastActivityAt: timestamp };
+  updates.entityType = table.entityType ?? 'fixed_table';
   const previousStatus = table.status;
   const nextStatus = payload.status ?? previousStatus;
 
@@ -322,6 +370,91 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
       actorId: actor?.uid ?? null
     });
   }
+}
+
+export async function createTemporaryOrder(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
+  const { db } = assertFirebaseConfigured();
+  const timestamp = now();
+  const token = generatePublicToken();
+  const effectiveCafeId = actor?.cafeId ?? cafeId;
+
+  const table: Omit<CafeTable, 'id'> = {
+    cafeId: effectiveCafeId,
+    name,
+    entityType: 'temporary_order',
+    publicToken: token,
+    status: 'occupied',
+    totalAmount: 0,
+    itemCount: 0,
+    openedAt: timestamp,
+    closedAt: null,
+    closedAmountSnapshot: null,
+    lastStatusChangedAt: timestamp,
+    deletedAt: null,
+    lastActivityAt: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+
+  const ref = await addDoc(collection(db, tablesCollection), table);
+  await safeLogTableActivity({ tableId: ref.id, cafeId: effectiveCafeId, actionType: 'table_created', message: `${name} (geçici sipariş) açıldı`, actorType: 'admin', actorId: actor?.uid ?? null });
+}
+
+export async function completeTableSession(tableId: string, actor?: AdminIdentity | null) {
+  const { db } = assertFirebaseConfigured();
+  const { table, itemIds, timestamp } = await createCompletedSessionSnapshot(tableId, actor);
+
+  await Promise.all(itemIds.map((itemId) => updateDoc(doc(db, itemsCollection, itemId), { deletedAt: timestamp, updatedAt: timestamp })));
+
+  if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
+    await updateDoc(doc(db, tablesCollection, tableId), {
+      status: 'empty',
+      totalAmount: 0,
+      itemCount: 0,
+      openedAt: null,
+      closedAt: timestamp,
+      closedAmountSnapshot: table.totalAmount,
+      lastStatusChangedAt: timestamp,
+      updatedAt: timestamp,
+      lastActivityAt: timestamp
+    });
+    await syncPublicTableProjection(tableId, table.cafeId);
+    await safeLogTableActivity({
+      tableId,
+      cafeId: table.cafeId,
+      actionType: 'table_closed',
+      message: 'Adisyon tamamlandı, masa yeni müşteri için hazır',
+      amountSnapshot: table.totalAmount,
+      actorType: 'admin',
+      actorId: actor?.uid ?? null
+    });
+    return;
+  }
+
+  await updateDoc(doc(db, tablesCollection, tableId), {
+    status: 'closed',
+    deletedAt: timestamp,
+    closedAt: timestamp,
+    closedAmountSnapshot: table.totalAmount,
+    lastStatusChangedAt: timestamp,
+    updatedAt: timestamp,
+    lastActivityAt: timestamp
+  });
+
+  try {
+    await syncPublicTableProjection(tableId, table.cafeId);
+  } catch (err) {
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
+  }
+  await safeLogTableActivity({
+    tableId,
+    cafeId: table.cafeId,
+    actionType: 'table_closed',
+    message: 'Geçici sipariş tamamlandı ve geçmişe taşındı',
+    amountSnapshot: table.totalAmount,
+    actorType: 'admin',
+    actorId: actor?.uid ?? null
+  });
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
@@ -405,8 +538,13 @@ export async function upsertCafeUser(uidValue: string, email: string, role: 'own
 export const formatCurrency = (value: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
 
 export const statusLabel: Record<TableStatus, string> = {
-  empty: 'Boş',
+  empty: 'Yeni müşteri için hazır',
   occupied: 'Dolu',
   payment_pending: 'Ödeme Bekliyor',
   closed: 'Kapalı'
+};
+
+export const entityTypeLabel: Record<ServiceEntityType, string> = {
+  fixed_table: 'Sabit Masa',
+  temporary_order: 'Geçici Sipariş'
 };

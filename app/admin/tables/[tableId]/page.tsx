@@ -7,6 +7,8 @@ import { AuthGuard } from '@/app/components/AuthGuard';
 import { BillSummary } from '@/app/components/BillSummary';
 import {
   addTableItem,
+  completeTableSession,
+  entityTypeLabel,
   editTableItem,
   formatCurrency,
   formatFirestoreActionError,
@@ -151,8 +153,8 @@ function AdminTableDetailContent() {
       <div className="mb-4 flex items-center justify-between">
         <Link href="/admin" className="text-sm text-slate-600 underline">← Panele Dön</Link>
         <div className="flex gap-2">
-          <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Müşteri Hesabını Aç</Link>
-          {user?.role === 'owner' && (
+          {(table.entityType ?? 'fixed_table') === 'fixed_table' && <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Müşteri Hesabını Aç</Link>}
+          {(table.entityType ?? 'fixed_table') === 'fixed_table' && user?.role === 'owner' && (
             <button
               className="rounded-md border border-amber-300 px-3 py-1.5 text-sm text-amber-700"
               onClick={async () => {
@@ -166,6 +168,18 @@ function AdminTableDetailContent() {
               QR Yenile
             </button>
           )}
+          <button
+            className="rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700"
+            onClick={async () => {
+              try {
+                await completeTableSession(table.id, user);
+              } catch (err) {
+                setError(formatFirestoreActionError(err, 'Adisyon tamamlanamadı.'));
+              }
+            }}
+          >
+            Adisyonu Tamamla
+          </button>
         </div>
       </div>
 
@@ -180,7 +194,7 @@ function AdminTableDetailContent() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">{table.name}</h1>
-            <p className="text-sm text-slate-500">Erişim anahtarı: {table.publicToken.slice(0, 10)}... · {formatRelativeTime(table.lastActivityAt)} güncellendi</p>
+            <p className="text-sm text-slate-500">{entityTypeLabel[table.entityType ?? 'fixed_table']} · Erişim anahtarı: {table.publicToken.slice(0, 10)}... · {formatRelativeTime(table.lastActivityAt)} güncellendi</p>
             <div className="mt-2 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
               <p>Açılış: <span className="font-medium text-slate-800">{formatDateTime(table.openedAt)}</span></p>
               <p>Kapanış: <span className="font-medium text-slate-800">{formatDateTime(table.closedAt)}</span></p>
@@ -204,7 +218,7 @@ function AdminTableDetailContent() {
               <option value="empty">Boş</option>
               <option value="occupied">Dolu</option>
               <option value="payment_pending">Ödeme Bekliyor</option>
-              <option value="closed">Kapalı</option>
+              {(table.entityType ?? 'fixed_table') === 'temporary_order' && <option value="closed">Kapalı</option>}
             </select>
           </div>
         </div>
@@ -334,7 +348,7 @@ function AdminTableDetailContent() {
             )}
           </div>
 
-          <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm">
+          {(table.entityType ?? 'fixed_table') === 'fixed_table' && <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm">
             <h3 className="font-semibold">Masa QR Kodu</h3>
             <p className="text-xs text-slate-500">Müşteri bu kodu okutup canlı hesap sayfasını açar.</p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -359,7 +373,7 @@ function AdminTableDetailContent() {
                 </button>
               </div>
             </div>
-          </div>
+          </div>}
 
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <h3 className="mb-2 font-semibold">Son Aktivite</h3>
