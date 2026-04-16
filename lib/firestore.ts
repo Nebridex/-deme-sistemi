@@ -318,6 +318,9 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
   const timestamp = now();
   const updates: Record<string, unknown> = { ...payload, updatedAt: timestamp, lastActivityAt: timestamp };
   updates.entityType = table.entityType ?? 'fixed_table';
+  if ((table.entityType ?? 'fixed_table') === 'fixed_table' && payload.status === 'closed') {
+    throw new Error('Sabit masada "Kapalı" durumunu kullanmayın. "Adisyonu Kapat" işlemiyle masa otomatik hazır duruma döner.');
+  }
   const previousStatus = table.status;
   const nextStatus = payload.status ?? previousStatus;
 

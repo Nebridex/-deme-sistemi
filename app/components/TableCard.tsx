@@ -33,11 +33,17 @@ export function TableCard({
   const statusChoices: CafeTable['status'][] = (table.entityType ?? 'fixed_table') === 'temporary_order'
     ? ['occupied', 'payment_pending', 'closed']
     : ['empty', 'occupied', 'payment_pending'];
+  const compactStatusLabel: Record<CafeTable['status'], string> = {
+    empty: 'Hazır',
+    occupied: 'Dolu',
+    payment_pending: 'Ödeme',
+    closed: 'Kapalı'
+  };
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1">
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           {isEditingName ? (
             <div className="flex gap-2">
               <input
@@ -59,9 +65,9 @@ export function TableCard({
               }}>Kaydet</button>
             </div>
           ) : (
-            <h3 className="text-lg font-semibold">{table.name}</h3>
+            <h3 className="truncate text-lg font-semibold">{table.name}</h3>
           )}
-          <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
+          <p className={`mt-1 inline-flex max-w-full rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
             {statusLabel[table.status]}
           </p>
           <p className="mt-1 text-xs text-slate-500">{formatRelativeTime(table.lastActivityAt)} güncellendi</p>
@@ -74,12 +80,12 @@ export function TableCard({
         <select
           value={table.status}
           onChange={(e) => onToggleStatus(table.id, e.target.value as CafeTable['status'])}
-          className="rounded-md border px-2 py-1 text-xs"
+          className="w-28 rounded-md border px-2 py-1 text-xs sm:w-32"
           aria-label="Masa durumu"
         >
           {statusChoices.map((status) => (
             <option key={status} value={status}>
-              {statusLabel[status]}
+              {compactStatusLabel[status]}
             </option>
           ))}
         </select>
@@ -96,12 +102,12 @@ export function TableCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Aç</Link>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>
           {isEditingName ? 'Vazgeç' : 'Yeniden Adlandır'}
         </button>
-        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Hızlı Ürün Ekle</button>
+        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => onQuickAdd(table)}>Hızlı Ürün</button>
         <button
           className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700"
           onClick={async () => {
@@ -115,7 +121,7 @@ export function TableCard({
         >
           {deleting ? 'Silmeyi Onayla' : 'Sil'}
         </button>
-        {deleting && <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => setDeleting(false)}>Geri Al</button>}
+        {deleting && <button className="col-span-2 rounded-md border px-3 py-1.5 text-xs" onClick={() => setDeleting(false)}>Silme işlemini iptal et</button>}
       </div>
     </article>
   );

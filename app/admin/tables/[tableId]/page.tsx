@@ -178,7 +178,7 @@ function AdminTableDetailContent() {
               }
             }}
           >
-            Adisyonu Tamamla
+            {(table.entityType ?? 'fixed_table') === 'fixed_table' ? 'Adisyonu Kapat' : 'Siparişi Tamamla'}
           </button>
         </div>
       </div>
