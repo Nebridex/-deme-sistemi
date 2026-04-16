@@ -134,13 +134,18 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     : table.status === 'payment_pending' || table.status === 'closed'
       ? table.status
       : 'occupied';
-
-  await updateDoc(doc(db, tablesCollection, tableId), {
+  const timestamp = now();
+  const updates: Record<string, unknown> = {
     ...totals,
     status,
-    updatedAt: now(),
-    lastActivityAt: now()
-  });
+    updatedAt: timestamp,
+    lastActivityAt: timestamp
+  };
+  if (status !== table.status) updates.lastStatusChangedAt = timestamp;
+  if (['occupied', 'payment_pending'].includes(status) && !['occupied', 'payment_pending'].includes(table.status)) {
+    updates.openedAt = timestamp;
+  }
+  await updateDoc(doc(db, tablesCollection, tableId), updates);
 
   await syncPublicTableProjectionDirect(tableId, cafeId);
 }
@@ -226,6 +231,10 @@ export async function createTable(name: string, actor?: AdminIdentity | null, ca
     status: 'empty',
     totalAmount: 0,
     itemCount: 0,
+    openedAt: null,
+    closedAt: null,
+    closedAmountSnapshot: null,
+    lastStatusChangedAt: timestamp,
     deletedAt: null,
     lastActivityAt: timestamp,
     createdAt: timestamp,
@@ -247,7 +256,31 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
 
-  await updateDoc(doc(db, tablesCollection, tableId), { ...payload, updatedAt: now(), lastActivityAt: now() });
+  const timestamp = now();
+  const updates: Record<string, unknown> = { ...payload, updatedAt: timestamp, lastActivityAt: timestamp };
+  const previousStatus = table.status;
+  const nextStatus = payload.status ?? previousStatus;
+
+  if (payload.status && nextStatus !== previousStatus) {
+    updates.lastStatusChangedAt = timestamp;
+  }
+
+  if (payload.status && nextStatus === 'closed' && previousStatus !== 'closed') {
+    updates.closedAt = timestamp;
+    updates.closedAmountSnapshot = table.totalAmount;
+  }
+
+  if (payload.status && previousStatus === 'closed' && nextStatus !== 'closed') {
+    updates.openedAt = timestamp;
+    updates.closedAt = null;
+    updates.closedAmountSnapshot = null;
+  }
+
+  if (payload.status && ['occupied', 'payment_pending'].includes(nextStatus) && !['occupied', 'payment_pending'].includes(previousStatus)) {
+    updates.openedAt = timestamp;
+  }
+
+  await updateDoc(doc(db, tablesCollection, tableId), updates);
   try {
     await syncPublicTableProjection(tableId, table.cafeId);
   } catch (err) {
@@ -256,6 +289,27 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
 
   if (payload.name) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_renamed', message: `Masa adı "${payload.name}" olarak güncellendi`, actorType: 'admin', actorId: actor?.uid ?? null });
   if (payload.status) await safeLogTableActivity({ tableId, cafeId: table.cafeId, actionType: 'table_status_changed', message: `Durum ${statusLabel[payload.status]} olarak değiştirildi`, actorType: 'admin', actorId: actor?.uid ?? null });
+  if (payload.status === 'closed' && previousStatus !== 'closed') {
+    await safeLogTableActivity({
+      tableId,
+      cafeId: table.cafeId,
+      actionType: 'table_closed',
+      message: `${table.name} kapatıldı`,
+      amountSnapshot: table.totalAmount,
+      actorType: 'admin',
+      actorId: actor?.uid ?? null
+    });
+  }
+  if (payload.status && previousStatus === 'closed' && payload.status !== 'closed') {
+    await safeLogTableActivity({
+      tableId,
+      cafeId: table.cafeId,
+      actionType: 'table_reopened',
+      message: `${table.name} yeniden açıldı`,
+      actorType: 'admin',
+      actorId: actor?.uid ?? null
+    });
+  }
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {

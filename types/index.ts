@@ -31,6 +31,10 @@ export type CafeTable = {
   status: TableStatus;
   itemCount: number;
   totalAmount: number;
+  openedAt: TimestampMs | null;
+  closedAt: TimestampMs | null;
+  closedAmountSnapshot: number | null;
+  lastStatusChangedAt: TimestampMs;
   deletedAt: TimestampMs | null;
   lastActivityAt: TimestampMs;
   createdAt: TimestampMs;
@@ -75,6 +79,8 @@ export type TableActivityLog = {
     | 'table_renamed'
     | 'table_status_changed'
     | 'table_deleted'
+    | 'table_closed'
+    | 'table_reopened'
     | 'item_added'
     | 'item_edited'
     | 'item_removed'
@@ -82,6 +88,7 @@ export type TableActivityLog = {
   message: string;
   actorType: ActorType;
   actorId: string | null;
+  amountSnapshot?: number;
   createdAt: TimestampMs;
 };
 

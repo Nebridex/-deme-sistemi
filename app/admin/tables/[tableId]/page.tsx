@@ -17,7 +17,7 @@ import {
   subscribeTableItems,
   updateTable
 } from '@/lib/firestore';
-import { formatRelativeTime } from '@/lib/domain/time';
+import { formatDateTime, formatRelativeTime } from '@/lib/domain/time';
 import { appEnv } from '@/lib/env';
 import {
   getPresetItems,
@@ -181,6 +181,12 @@ function AdminTableDetailContent() {
           <div>
             <h1 className="text-2xl font-bold">{table.name}</h1>
             <p className="text-sm text-slate-500">Erişim anahtarı: {table.publicToken.slice(0, 10)}... · {formatRelativeTime(table.lastActivityAt)} güncellendi</p>
+            <div className="mt-2 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
+              <p>Açılış: <span className="font-medium text-slate-800">{formatDateTime(table.openedAt)}</span></p>
+              <p>Kapanış: <span className="font-medium text-slate-800">{formatDateTime(table.closedAt)}</span></p>
+              <p>Oluşturulma: <span className="font-medium text-slate-800">{formatDateTime(table.createdAt)}</span></p>
+              <p>Son Durum Değişimi: <span className="font-medium text-slate-800">{formatDateTime(table.lastStatusChangedAt)}</span></p>
+            </div>
           </div>
           <div className="space-y-1">
             <p className="text-xs font-medium uppercase text-slate-500">Masa durumu</p>

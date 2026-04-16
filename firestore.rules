@@ -55,6 +55,10 @@ service cloud.firestore {
         && request.resource.data.deletedAt == null
         && isNonNegativeNumber(request.resource.data.totalAmount)
         && isNonNegativeNumber(request.resource.data.itemCount)
+        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
+        && (request.resource.data.closedAt == null || request.resource.data.closedAt is number)
+        && (request.resource.data.closedAmountSnapshot == null || isNonNegativeNumber(request.resource.data.closedAmountSnapshot))
+        && request.resource.data.lastStatusChangedAt is number
         && request.resource.data.createdAt is number
         && request.resource.data.updatedAt is number
         && request.resource.data.lastActivityAt is number;
@@ -69,6 +73,10 @@ service cloud.firestore {
         && request.resource.data.publicToken.size() >= 24
         && isNonNegativeNumber(request.resource.data.totalAmount)
         && isNonNegativeNumber(request.resource.data.itemCount)
+        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
+        && (request.resource.data.closedAt == null || request.resource.data.closedAt is number)
+        && (request.resource.data.closedAmountSnapshot == null || isNonNegativeNumber(request.resource.data.closedAmountSnapshot))
+        && request.resource.data.lastStatusChangedAt is number
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt is number
         && request.resource.data.lastActivityAt is number;
@@ -116,6 +124,7 @@ service cloud.firestore {
         && request.resource.data.message.size() > 0
         && request.resource.data.actionType is string
         && request.resource.data.actorType in ['admin', 'system']
+        && (!('amountSnapshot' in request.resource.data) || isNonNegativeNumber(request.resource.data.amountSnapshot))
         && request.resource.data.createdAt is number
         && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId);
     }

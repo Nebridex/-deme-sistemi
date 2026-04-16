@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { formatRelativeTime } from '@/lib/domain/time';
+import { formatDateTime, formatRelativeTime } from '@/lib/domain/time';
 import { formatCurrency, statusLabel } from '@/lib/firestore';
 import type { CafeTable } from '@/types';
 
@@ -63,6 +63,11 @@ export function TableCard({
             {statusLabel[table.status]}
           </p>
           <p className="mt-1 text-xs text-slate-500">{formatRelativeTime(table.lastActivityAt)} güncellendi</p>
+          {table.status === 'closed' ? (
+            <p className="mt-1 text-xs text-violet-700">Kapanış: {formatDateTime(table.closedAt)}</p>
+          ) : (
+            <p className="mt-1 text-xs text-emerald-700">Açılış: {formatDateTime(table.openedAt)}</p>
+          )}
         </div>
         <select
           value={table.status}
