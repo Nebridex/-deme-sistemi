@@ -47,7 +47,6 @@ function AdminDashboardContent() {
   const [todayClosedLogs, setTodayClosedLogs] = useState<TableActivityLog[]>([]);
   const [topItemsToday, setTopItemsToday] = useState<Array<{ name: string; count: number }>>([]);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    fixedPaymentPending: false,
     fixedOccupied: false,
     fixedReady: false,
     temporaryOpen: false,
@@ -195,7 +194,7 @@ function AdminDashboardContent() {
       todayClosedCount: todayClosedLogs.length || closedTodayFallback.length,
       todayClosedRevenue: todayClosedLogs.length ? closedTodayRevenueFromLogs : closedTodayRevenueFallback,
       paymentPendingCount: fixedTables.filter((table) => table.status === 'payment_pending').length,
-      occupiedCount: fixedTables.filter((table) => table.status === 'occupied').length,
+      occupiedCount: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending').length,
       readyCount: fixedTables.filter((table) => table.status === 'empty').length,
       temporaryOpenCount: temporaryOpen.length
     };
@@ -203,8 +202,7 @@ function AdminDashboardContent() {
 
   const groupedFixed = useMemo(
     () => ({
-      paymentPending: fixedTables.filter((table) => table.status === 'payment_pending'),
-      occupied: fixedTables.filter((table) => table.status === 'occupied'),
+      occupied: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending'),
       ready: fixedTables.filter((table) => table.status === 'empty'),
       legacyClosed: fixedTables.filter((table) => table.status === 'closed')
     }),
@@ -322,31 +320,6 @@ function AdminDashboardContent() {
 
       {!loading && (
         <div className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-semibold">Sabit Masalar · Ödeme Bekleyen</h2>
-                <p className="text-xs text-slate-600">Aktif akış içinde öncelikli takip alanı</p>
-              </div>
-              <button className="rounded-md border px-2 py-1 text-xs" onClick={() => toggleSection('fixedPaymentPending')}>{collapsedSections.fixedPaymentPending ? 'Genişlet' : 'Daralt'}</button>
-            </div>
-            {!collapsedSections.fixedPaymentPending && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {groupedFixed.paymentPending.map((table) => (
-                  <TableCard
-                    key={table.id}
-                    table={table}
-                    onDelete={(tableId) => softDeleteTable(tableId, user)}
-                    onRename={(id, name) => updateTable(id, { name }, user)}
-                    onToggleStatus={(id, status) => updateTable(id, { status }, user)}
-                    onQuickAdd={renderQuickAdd}
-                  />
-                ))}
-                {!groupedFixed.paymentPending.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Ödeme bekleyen sabit masa yok.</div>}
-              </div>
-            )}
-          </section>
-
           <section className="grid gap-4 xl:grid-cols-2">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -363,6 +336,14 @@ function AdminDashboardContent() {
                       onRename={(id, name) => updateTable(id, { name }, user)}
                       onToggleStatus={(id, status) => updateTable(id, { status }, user)}
                       onQuickAdd={renderQuickAdd}
+                      onComplete={async (t) => {
+                        try {
+                          await completeTableSession(t.id, user);
+                        } catch (err) {
+                          setError(formatFirestoreActionError(err, 'Adisyon tamamlanamadı.'));
+                        }
+                      }}
+                      completeLabel="Adisyonu Kapat"
                     />
                   ))}
                   {!groupedFixed.occupied.length && <div className="rounded-lg border border-dashed p-3 text-sm text-slate-500">Dolu sabit masa yok.</div>}

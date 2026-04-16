@@ -18,13 +18,17 @@ export function TableCard({
   onDelete,
   onRename,
   onToggleStatus,
-  onQuickAdd
+  onQuickAdd,
+  onComplete,
+  completeLabel = 'Adisyonu Kapat'
 }: {
   table: CafeTable;
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, name: string) => Promise<void>;
   onToggleStatus: (id: string, status: CafeTable['status']) => Promise<void>;
   onQuickAdd: (table: CafeTable) => Promise<void>;
+  onComplete?: (table: CafeTable) => Promise<void>;
+  completeLabel?: string;
 }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [name, setName] = useState(table.name);
@@ -32,7 +36,7 @@ export function TableCard({
 
   const statusChoices: CafeTable['status'][] = (table.entityType ?? 'fixed_table') === 'temporary_order'
     ? ['occupied', 'payment_pending', 'closed']
-    : ['empty', 'occupied', 'payment_pending'];
+    : ['empty', 'occupied'];
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
@@ -64,6 +68,9 @@ export function TableCard({
           <p className={`mt-1 inline-flex max-w-full rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles[table.status]}`}>
             {statusLabel[table.status]}
           </p>
+          {(table.entityType ?? 'fixed_table') === 'fixed_table' && table.status === 'payment_pending' && (
+            <p className="mt-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Ödeme Bekliyor</p>
+          )}
           <p className="mt-1 text-xs text-slate-500">{formatRelativeTime(table.lastActivityAt)} güncellendi</p>
           {table.status === 'closed' ? (
             <p className="mt-1 text-xs text-violet-700">Kapanış: {formatDateTime(table.closedAt)}</p>
@@ -97,6 +104,11 @@ export function TableCard({
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
+        {onComplete && (
+          <button className="col-span-2 rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700" onClick={() => onComplete(table)}>
+            {completeLabel}
+          </button>
+        )}
         <Link href={`/admin/tables/${table.id}`} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white">Aç</Link>
         <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setIsEditingName((v) => !v)}>
           {isEditingName ? 'Vazgeç' : 'Yeniden Adlandır'}
