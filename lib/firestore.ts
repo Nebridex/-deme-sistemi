@@ -143,12 +143,16 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     updatedAt: timestamp,
     lastActivityAt: timestamp
   };
-  if (status !== table.status) updates.lastStatusChangedAt = timestamp;
+  if (status !== table.status || typeof table.lastStatusChangedAt !== 'number') updates.lastStatusChangedAt = timestamp;
   if (!table.cafeId) updates.cafeId = effectiveCafeId;
   if (['occupied', 'payment_pending'].includes(status) && !['occupied', 'payment_pending'].includes(table.status)) {
     updates.openedAt = timestamp;
   }
-  await updateDoc(doc(db, tablesCollection, tableId), updates);
+  try {
+    await updateDoc(doc(db, tablesCollection, tableId), updates);
+  } catch (err) {
+    throw new Error(`Aggregate table update failed (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
+  }
 
   await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
 }
@@ -573,9 +577,12 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
-  await addDoc(collection(db, itemsCollection), item);
+  const itemRef = await addDoc(collection(db, itemsCollection), item);
+  if (process.env.NODE_ENV !== 'production') console.log('[addTableItem] tableItems create succeeded', { itemId: itemRef.id, tableId, cafeId: effectiveCafeId });
   await recomputeTableAggregates(tableId, effectiveCafeId);
+  if (process.env.NODE_ENV !== 'production') console.log('[addTableItem] tables aggregate update succeeded', { tableId, cafeId: effectiveCafeId });
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
+  if (process.env.NODE_ENV !== 'production') console.log('[addTableItem] tableActivityLogs create attempted via safeLogTableActivity', { tableId, cafeId: effectiveCafeId });
 }
 
 export async function editTableItem(itemId: string, payload: Pick<TableItem, 'name' | 'quantity' | 'unitPrice' | 'tableId' | 'cafeId'>, actor?: AdminIdentity | null) {
