@@ -1,12 +1,19 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    /* =========================
+       AUTH HELPERS
+    ========================= */
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
     function hasUserDoc() {
-      return isAuthenticated() && exists(/databases/$(database)/documents/cafeUsers/$(request.auth.uid));
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/cafeUsers/$(request.auth.uid));
     }
 
     function getUserData() {
@@ -14,267 +21,154 @@ service cloud.firestore {
     }
 
     function isCafeUser(cafeId) {
-      return hasUserDoc() && getUserData().cafeId == cafeId;
+      return hasUserDoc() &&
+        getUserData().cafeId == cafeId;
     }
 
     function isOwner(cafeId) {
-      return isCafeUser(cafeId) && getUserData().role == 'owner';
+      return isCafeUser(cafeId) &&
+        getUserData().role == "owner";
     }
 
     function isManager(cafeId) {
-      return isCafeUser(cafeId) && getUserData().role == 'manager';
+      return isCafeUser(cafeId) &&
+        getUserData().role == "manager";
     }
 
     function isOwnerOrManager(cafeId) {
       return isOwner(cafeId) || isManager(cafeId);
     }
 
-    function isNonNegativeNumber(value) {
-      return value is number && value >= 0;
-    }
-
-    function tableDoc(tableId) {
-      return get(/databases/$(database)/documents/tables/$(tableId)).data;
-    }
-
-    function tableExists(tableId) {
-      return exists(/databases/$(database)/documents/tables/$(tableId));
-    }
-
-    function tableBelongsToCafe(tableId, cafeId) {
-      return tableExists(tableId) && tableDoc(tableId).cafeId == cafeId;
-    }
-
-    function tableCafeMatchesOrUnknown(tableId, cafeId) {
-      return !tableExists(tableId)
-        || tableDoc(tableId).cafeId == cafeId
-        || !('cafeId' in tableDoc(tableId))
-        || tableDoc(tableId).cafeId == null;
-    }
-
-    function isSafeTableCreate() {
-      return request.resource.data.cafeId is string
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.entityType in ['fixed_table', 'temporary_order']
-        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
-        && request.resource.data.publicToken is string
-        && request.resource.data.publicToken.size() >= 24
-        && request.resource.data.deletedAt == null
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
-        && (request.resource.data.closedAt == null || request.resource.data.closedAt is number)
-        && (request.resource.data.closedAmountSnapshot == null || isNonNegativeNumber(request.resource.data.closedAmountSnapshot))
-        && request.resource.data.lastStatusChangedAt is number
-        && request.resource.data.createdAt is number
-        && request.resource.data.updatedAt is number
-        && request.resource.data.lastActivityAt is number;
-    }
-
-    function isSafeTableUpdate() {
-      return request.resource.data.cafeId == resource.data.cafeId
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.entityType in ['fixed_table', 'temporary_order']
-        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
-        && (
-          (request.resource.data.publicToken is string && request.resource.data.publicToken.size() >= 24)
-          || request.resource.data.publicToken == null
+    function canAccessByResourceOrRequestCafeId() {
+      return isAuthenticated() && (
+        (
+          resource.data.cafeId is string &&
+          isOwnerOrManager(resource.data.cafeId)
+        ) ||
+        (
+          request.resource.data.cafeId is string &&
+          isOwnerOrManager(request.resource.data.cafeId)
         )
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
-        && (request.resource.data.closedAt == null || request.resource.data.closedAt is number)
-        && (request.resource.data.closedAmountSnapshot == null || isNonNegativeNumber(request.resource.data.closedAmountSnapshot))
-        && (request.resource.data.lastStatusChangedAt is number || request.resource.data.lastStatusChangedAt == null)
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedAt is number
-        && request.resource.data.lastActivityAt is number;
+      );
     }
 
-    function canMutatePublicToken() {
-      return request.resource.data.publicToken == resource.data.publicToken
-        || (isOwner(resource.data.cafeId) && request.resource.data.publicToken != resource.data.publicToken);
-    }
-
-    function isValidTableItemCreate() {
-      return request.resource.data.cafeId is string
-        && request.resource.data.tableId is string
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.quantity is int
-        && request.resource.data.quantity > 0
-        && isNonNegativeNumber(request.resource.data.unitPrice)
-        && isNonNegativeNumber(request.resource.data.totalPrice)
-        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
-        && request.resource.data.deletedAt == null
-        && request.resource.data.createdAt is number
-        && request.resource.data.updatedAt is number
-        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId);
-    }
-
-    function isValidTableItemUpdate() {
-      return request.resource.data.cafeId == resource.data.cafeId
-        && request.resource.data.tableId == resource.data.tableId
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.quantity is int
-        && request.resource.data.quantity > 0
-        && isNonNegativeNumber(request.resource.data.unitPrice)
-        && isNonNegativeNumber(request.resource.data.totalPrice)
-        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedAt is number;
-    }
-
-    // Completion/archive path compatibility for legacy rows that may not satisfy strict shape checks anymore.
-    // Allows only soft-delete style archival writes while freezing core item fields.
-    function isTableItemArchiveUpdate() {
-      return request.resource.data.cafeId is string
-        && request.resource.data.tableId is string
-        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId)
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.quantity is number
-        && request.resource.data.quantity > 0
-        && isNonNegativeNumber(request.resource.data.unitPrice)
-        && isNonNegativeNumber(request.resource.data.totalPrice)
-        && request.resource.data.totalPrice == request.resource.data.quantity * request.resource.data.unitPrice
-        && (resource.data.createdAt == null || request.resource.data.createdAt == resource.data.createdAt)
-        && (resource.data.createdAt != null || request.resource.data.createdAt is number)
-        && resource.data.deletedAt == null
-        && request.resource.data.deletedAt is number
-        && request.resource.data.updatedAt is number;
-    }
-
-    function isValidLogCreate() {
-      return request.resource.data.tableId is string
-        && request.resource.data.cafeId is string
-        && request.resource.data.message is string
-        && request.resource.data.message.size() > 0
-        && request.resource.data.actionType is string
-        && request.resource.data.actorType in ['admin', 'system']
-        && (!('amountSnapshot' in request.resource.data) || isNonNegativeNumber(request.resource.data.amountSnapshot))
-        && request.resource.data.createdAt is number
-        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId);
-    }
-
-    function isValidProjectionWrite() {
-      return request.resource.data.cafeId is string
-        && request.resource.data.tableId is string
-        && request.resource.data.publicToken == publicToken
-        && request.resource.data.tableName is string
-        && request.resource.data.items is list
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && request.resource.data.status in ['empty', 'occupied', 'payment_pending', 'closed']
-        && request.resource.data.updatedAt is number
-        && tableBelongsToCafe(request.resource.data.tableId, request.resource.data.cafeId)
-        // Temporary compatibility allowance for client fallback projection sync.
-        // Post-callable deployment: remove these mirror checks from client path and enforce backend-only writes.
-        && tableDoc(request.resource.data.tableId).publicToken == request.resource.data.publicToken
-        && tableDoc(request.resource.data.tableId).name == request.resource.data.tableName
-        && tableDoc(request.resource.data.tableId).status == request.resource.data.status
-        && tableDoc(request.resource.data.tableId).itemCount == request.resource.data.itemCount
-        && tableDoc(request.resource.data.tableId).totalAmount == request.resource.data.totalAmount;
-    }
-
-    function isValidCompletedSessionItem(item) {
-      return item is map
-        && item.name is string
-        && item.name.size() > 0
-        && item.quantity is number
-        && item.quantity > 0
-        && isNonNegativeNumber(item.unitPrice)
-        && isNonNegativeNumber(item.totalPrice)
-        && item.totalPrice == item.quantity * item.unitPrice;
-    }
-
-    function isValidCompletedSessionItems(items, idx) {
-      return idx >= items.size()
-        || (isValidCompletedSessionItem(items[idx]) && isValidCompletedSessionItems(items, idx + 1));
-    }
-
-    function isValidCompletedSessionCreate() {
-      return request.resource.data.cafeId is string
-        && request.resource.data.sourceEntityType in ['fixed_table', 'temporary_order']
-        && request.resource.data.sourceTableId is string
-        && request.resource.data.sourceTableName is string
-        && request.resource.data.sourceTableName.size() > 0
-        && (request.resource.data.publicToken == null || request.resource.data.publicToken is string)
-        && isNonNegativeNumber(request.resource.data.totalAmount)
-        && isNonNegativeNumber(request.resource.data.itemCount)
-        && request.resource.data.items is list
-        && isValidCompletedSessionItems(request.resource.data.items, 0)
-        && (request.resource.data.openedAt == null || request.resource.data.openedAt is number)
-        && request.resource.data.closedAt is number
-        && (request.resource.data.closedBy == null || request.resource.data.closedBy is string)
-        && request.resource.data.createdAt is number
-        && tableCafeMatchesOrUnknown(request.resource.data.sourceTableId, request.resource.data.cafeId);
-    }
+    /* =========================
+       CAFES
+    ========================= */
 
     match /cafes/{cafeId} {
       allow read: if isOwnerOrManager(cafeId);
-      allow create, update, delete: if isOwner(cafeId);
+      allow create: if false;
+      allow update, delete: if isOwner(cafeId);
     }
 
+    /* =========================
+       USERS
+    ========================= */
+
     match /cafeUsers/{userId} {
-      allow get: if isAuthenticated() && request.auth.uid == userId;
+      allow get: if isAuthenticated() &&
+        request.auth.uid == userId;
+
       allow list: if false;
       allow create, update, delete: if false;
     }
 
+    /* =========================
+       TABLES
+    ========================= */
+
     match /tables/{tableId} {
-      allow read: if isOwnerOrManager(resource.data.cafeId);
-      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isSafeTableCreate();
-      allow update: if isOwnerOrManager(resource.data.cafeId)
-        && isSafeTableUpdate()
-        && canMutatePublicToken();
-      allow delete: if false;
+
+      allow read: if isAuthenticated()
+        && resource.data.cafeId is string
+        && isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isAuthenticated()
+        && request.resource.data.cafeId is string
+        && isOwnerOrManager(request.resource.data.cafeId);
+
+      allow update: if canAccessByResourceOrRequestCafeId();
+
+      allow delete: if canAccessByResourceOrRequestCafeId();
     }
+
+    /* =========================
+       TABLE ITEMS
+    ========================= */
 
     match /tableItems/{itemId} {
-      allow read: if isOwnerOrManager(resource.data.cafeId);
-      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidTableItemCreate();
-      allow update: if (isOwnerOrManager(resource.data.cafeId) || isOwnerOrManager(request.resource.data.cafeId))
-        && (isValidTableItemUpdate() || isTableItemArchiveUpdate());
-      allow delete: if false;
+
+      allow read: if isAuthenticated()
+        && resource.data.cafeId is string
+        && isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isAuthenticated()
+        && request.resource.data.cafeId is string
+        && isOwnerOrManager(request.resource.data.cafeId);
+
+      allow update: if canAccessByResourceOrRequestCafeId();
+
+      /* KRİTİK FIX */
+      allow delete: if canAccessByResourceOrRequestCafeId();
     }
 
+    /* =========================
+       ACTIVITY LOGS
+    ========================= */
+
     match /tableActivityLogs/{logId} {
-      allow read: if isOwnerOrManager(resource.data.cafeId);
-      // Temporary compatibility allowance: client may append logs.
-      // Post-callable deployment: move this to backend-only.
-      allow create: if isOwnerOrManager(request.resource.data.cafeId) && isValidLogCreate();
+
+      allow read: if isAuthenticated()
+        && resource.data.cafeId is string
+        && isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isAuthenticated()
+        && request.resource.data.cafeId is string
+        && isOwnerOrManager(request.resource.data.cafeId);
+
       allow update, delete: if false;
     }
 
-    match /publicTables/{publicToken} {
-      allow get, list: if resource.data.deletedAt == null;
-      // Public write is denied; only authenticated cafe admins can write a table-mirrored projection.
-      allow create, update: if isOwnerOrManager(request.resource.data.cafeId) && isValidProjectionWrite();
-      allow delete: if isOwnerOrManager(resource.data.cafeId);
+    /* =========================
+       PUBLIC TABLES
+    ========================= */
+
+    match /publicTables/{token} {
+
+      allow read: if resource.data.deletedAt == null;
+
+      allow create, update, delete: if isAuthenticated();
     }
+
+    /* =========================
+       COMPLETED SESSIONS
+    ========================= */
+
+    match /completedSessions/{sessionId} {
+
+      allow read: if isAuthenticated()
+        && resource.data.cafeId is string
+        && isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isAuthenticated()
+        && request.resource.data.cafeId is string
+        && isOwnerOrManager(request.resource.data.cafeId);
+
+      allow update, delete: if canAccessByResourceOrRequestCafeId();
+    }
+
+    /* =========================
+       PAYMENTS
+    ========================= */
 
     match /payments/{paymentId} {
       allow read, write: if false;
     }
 
-    match /splitSessions/{splitSessionId} {
-      allow read, write: if false;
-    }
-
-    match /tableSettlements/{settlementId} {
-      allow read, write: if false;
-    }
-
-    match /completedSessions/{sessionId} {
-      allow read: if isOwnerOrManager(resource.data.cafeId);
-      allow create: if isOwnerOrManager(request.resource.data.cafeId)
-        && isValidCompletedSessionCreate();
-      allow update, delete: if false;
-    }
+    /* =========================
+       FALLBACK
+    ========================= */
 
     match /{document=**} {
       allow read, write: if false;
