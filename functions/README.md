@@ -1,14 +1,18 @@
-# Functions Scaffold (Future Server-Authoritative Security)
+# Functions Scaffold (Sunucu Kontrollü Veri Bütünlüğü)
 
-This folder is a boundary for moving security-critical logic out of trusted clients.
+Bu klasör, kritik bütünlük akışlarını istemciden backend'e taşıma sınırıdır.
 
-Planned handlers:
-- `recomputeTableAggregates(tableId, cafeId)`
-- `syncPublicTableProjection(tableId, cafeId)`
-- `rotatePublicToken(tableId, actorUid)` (owner-only)
+## Hedef callable uçlar
+- `recomputeTableAggregates({ tableId, cafeId })`
+- `syncPublicTableProjection({ tableId, cafeId })`
+- `rotatePublicToken({ tableId, actorUid })` (yalnızca owner)
 
-Current app already calls matching service functions from `lib/firestore.ts`.
-Migration path:
-1. Implement Cloud Functions handlers.
-2. Replace client direct aggregate/projection writes with callable functions.
-3. Keep Firestore rules strict and block direct aggregate mutation from client.
+## Mevcut durum
+- İstemci tarafında `lib/backendIntegrity.ts` callable uçları dener.
+- Fonksiyonlar henüz deploy edilmemişse otomatik olarak güvenli istemci fallback akışına döner.
+- Bu sayede mevcut çalışan akışlar bozulmadan backend geçişi hazırlanmış olur.
+
+## Üretime geçiş adımı
+1. `functions/src/integrity.js` dosyasını gerçek `firebase-functions` + `firebase-admin` koduyla tamamla.
+2. Callable uçları deploy et.
+3. Firestore kurallarında aggregate/projection alanları için doğrudan istemci update iznini daralt.
