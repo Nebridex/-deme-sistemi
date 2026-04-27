@@ -3,6 +3,7 @@ export type TimestampMs = number;
 export type CafeStatus = 'active' | 'inactive';
 export type CafeUserRole = 'owner' | 'manager';
 export type TableStatus = 'empty' | 'occupied' | 'payment_pending' | 'closed';
+export type ServiceEntityType = 'fixed_table' | 'temporary_order';
 export type ActorType = 'admin' | 'system';
 
 export type Cafe = {
@@ -27,14 +28,42 @@ export type CafeTable = {
   id: string;
   cafeId: string;
   name: string;
+  entityType: ServiceEntityType;
   publicToken: string;
   status: TableStatus;
   itemCount: number;
   totalAmount: number;
+  openedAt: TimestampMs | null;
+  closedAt: TimestampMs | null;
+  closedAmountSnapshot: number | null;
+  lastStatusChangedAt: TimestampMs;
   deletedAt: TimestampMs | null;
   lastActivityAt: TimestampMs;
   createdAt: TimestampMs;
   updatedAt: TimestampMs;
+};
+
+export type CompletedSessionItemSnapshot = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+export type CompletedSession = {
+  id: string;
+  cafeId: string;
+  sourceTableId: string;
+  sourceTableName: string;
+  sourceEntityType: ServiceEntityType;
+  publicToken: string | null;
+  totalAmount: number;
+  itemCount: number;
+  items: CompletedSessionItemSnapshot[];
+  openedAt: TimestampMs | null;
+  closedAt: TimestampMs;
+  closedBy: string | null;
+  createdAt: TimestampMs;
 };
 
 export type TableItem = {
@@ -75,6 +104,8 @@ export type TableActivityLog = {
     | 'table_renamed'
     | 'table_status_changed'
     | 'table_deleted'
+    | 'table_closed'
+    | 'table_reopened'
     | 'item_added'
     | 'item_edited'
     | 'item_removed'
@@ -82,6 +113,7 @@ export type TableActivityLog = {
   message: string;
   actorType: ActorType;
   actorId: string | null;
+  amountSnapshot?: number;
   createdAt: TimestampMs;
 };
 
@@ -91,7 +123,37 @@ export type Payment = {
   tableId: string;
   amount: number;
   currency: 'TRY';
-  status: 'pending' | 'succeeded' | 'failed';
+  status: 'pending' | 'authorized' | 'succeeded' | 'failed' | 'canceled';
+  provider: 'manual' | 'iyzico' | 'stripe' | 'other';
+  providerReference: string | null;
+  splitSessionId: string | null;
+  payerLabel: string | null;
+  payerId: string | null;
+  createdAt: TimestampMs;
+  updatedAt: TimestampMs;
+};
+
+export type SplitSession = {
+  id: string;
+  cafeId: string;
+  tableId: string;
+  mode: 'equal' | 'item_select';
+  participantCount: number | null;
+  selectedItems: Array<{ itemName: string; quantity: number; totalPrice: number }> | null;
+  subtotal: number;
+  status: 'draft' | 'confirmed' | 'canceled';
+  createdAt: TimestampMs;
+  updatedAt: TimestampMs;
+};
+
+export type TableSettlement = {
+  id: string;
+  cafeId: string;
+  tableId: string;
+  originalAmount: number;
+  settledAmount: number;
+  remainingAmount: number;
+  status: 'open' | 'partial' | 'settled';
   createdAt: TimestampMs;
   updatedAt: TimestampMs;
 };
