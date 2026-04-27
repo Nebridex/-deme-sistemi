@@ -1,4 +1,4 @@
-# Kafe QR Hesap Yönetimi (Firebase Entegre)
+# Kafe QR Hesap Yönetimi (Firebase Entegre) ccc
 
 Next.js + TypeScript + Tailwind + Firebase App/Firestore/Auth integration.
 
