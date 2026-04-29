@@ -80,9 +80,10 @@ service cloud.firestore {
 
     match /tables/{tableId} {
 
-      allow read: if isAuthenticated()
+      allow read: if (isAuthenticated()
         && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId);
+        && isOwnerOrManager(resource.data.cafeId))
+        || (resource.data.deletedAt == null);
 
       allow create: if isAuthenticated()
         && request.resource.data.cafeId is string
@@ -99,9 +100,10 @@ service cloud.firestore {
 
     match /tableItems/{itemId} {
 
-      allow read: if isAuthenticated()
+      allow read: if (isAuthenticated()
         && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId);
+        && isOwnerOrManager(resource.data.cafeId))
+        || (resource.data.deletedAt == null);
 
       allow create: if isAuthenticated()
         && request.resource.data.cafeId is string

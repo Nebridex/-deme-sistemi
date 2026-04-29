@@ -3,15 +3,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { BillSummary } from '@/app/components/BillSummary';
-import { formatCurrency, mapPublicProjectionToBillView, subscribePublicTableByToken } from '@/lib/firestore';
+import { formatCurrency, subscribePublicTableByToken, subscribeTableById, subscribeTableItems } from '@/lib/firestore';
 import { DEFAULT_CAFE_NAME } from '@/lib/domain/constants';
-import type { PublicTableBillView, PublicTableProjection } from '@/types';
+import type { CafeTable, PublicTableBillView, PublicTableProjection, TableItem } from '@/types';
 
 export default function CustomerTablePage() {
   const params = useParams<{ tableId: string }>();
   const publicToken = params.tableId;
 
   const [projection, setProjection] = useState<PublicTableProjection | null>(null);
+  const [table, setTable] = useState<CafeTable | null>(null);
+  const [items, setItems] = useState<TableItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,13 +22,34 @@ export default function CustomerTablePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
+    let unsubProjection: (() => void) | undefined;
+    let unsubTable: (() => void) | undefined;
+    let unsubItems: (() => void) | undefined;
     try {
       setIsRefreshing(true);
-      unsub = subscribePublicTableByToken(
+      unsubProjection = subscribePublicTableByToken(
         publicToken,
         (next) => {
           setProjection(next);
+          if (!next?.tableId || !next?.cafeId) {
+            setTable(null);
+            setItems([]);
+            setLoading(false);
+            setIsRefreshing(false);
+            return;
+          }
+          unsubTable?.();
+          unsubItems?.();
+          unsubTable = subscribeTableById(next.tableId, (nextTable) => {
+            setTable(nextTable);
+            setLoading(false);
+            setIsRefreshing(false);
+          }, (message) => setError(message || 'Masa bilgisi alınamadı.'));
+          unsubItems = subscribeTableItems(next.cafeId, next.tableId, (nextItems) => {
+            setItems(nextItems);
+            setLoading(false);
+            setIsRefreshing(false);
+          }, (message) => setError(message || 'Ürünler alınamadı.'));
           setLoading(false);
           setIsRefreshing(false);
         },
@@ -41,7 +64,11 @@ export default function CustomerTablePage() {
       setLoading(false);
       setIsRefreshing(false);
     }
-    return () => unsub?.();
+    return () => {
+      unsubProjection?.();
+      unsubTable?.();
+      unsubItems?.();
+    };
   }, [publicToken]);
 
   useEffect(() => {
@@ -56,7 +83,16 @@ export default function CustomerTablePage() {
     };
   }, []);
 
-  const bill: PublicTableBillView | null = useMemo(() => (projection ? mapPublicProjectionToBillView(projection) : null), [projection]);
+  const bill: PublicTableBillView | null = useMemo(() => {
+    if (!projection || !table) return null;
+    return {
+      tableName: table.name,
+      status: table.status,
+      itemCount: table.itemCount,
+      totalAmount: table.totalAmount,
+      items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, totalPrice: i.totalPrice }))
+    };
+  }, [items, projection, table]);
   const selectedSubtotal = useMemo(() => {
     if (!bill) return 0;
     return bill.items.reduce((sum, item, idx) => {

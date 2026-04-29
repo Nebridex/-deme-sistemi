@@ -27,8 +27,8 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
-NEXT_PUBLIC_APP_URL=https://adisyon.minifabrika.online
-NEXT_PUBLIC_APP_BASE_URL=https://adisyon.minifabrika.online
+NEXT_PUBLIC_APP_URL=https://minifabrika.online
+NEXT_PUBLIC_APP_BASE_URL=https://minifabrika.online
 NEXT_PUBLIC_APP_NAME=MiniFabrika Adisyon Pilot
 NEXT_PUBLIC_APP_DESCRIPTION=QR destekli restoran adisyon ve masa yönetimi
 NEXT_PUBLIC_APP_ENV=production
@@ -47,9 +47,9 @@ If these are missing, the app shows a configuration error and blocks auth/data o
 5. Uygulama için gerekli koleksiyonları oluşturun (`tables`, `tableItems`, `publicTables`, `tableActivityLogs`, `completedSessions`).
 6. `firestore.rules` dosyasını deploy edin.
 
-## Vercel deploy adımları (adisyon.minifabrika.online)
+## Vercel deploy adımları (minifabrika.online)
 1. Repo’yu Vercel’e bağlayın ve Production branch olarak `release/admin-stable` seçin.
-2. Domain olarak `adisyon.minifabrika.online` ekleyin.
+2. Domain olarak `minifabrika.online` ekleyin.
 3. **Project Settings > Environment Variables** bölümüne yukarıdaki tüm `NEXT_PUBLIC_*` değişkenleri **Production** scope ile girin.
 4. Build command: `npm run build`, Output: Next.js default.
 5. Deploy sonrası `/admin/login` üzerinden giriş testi yapın.
@@ -59,7 +59,7 @@ If these are missing, the app shows a configuration error and blocks auth/data o
   - Email/Password: **Enabled**
   - Email link / anonim / sosyal sağlayıcılar: **Disabled** (private admin kullanım)
 - **Authentication > Settings**
-  - Authorized domains: `adisyon.minifabrika.online`
+  - Authorized domains: `minifabrika.online`
 - **Firestore**
   - Production mode
   - `firestore.rules` deploy edilmiş olmalı
@@ -109,4 +109,4 @@ Toplam tutar / ürün adedi / public projection bütünlüğü bu pilotta istemc
    - Tamamlanan Siparişler / Adisyon Geçmişi yeni kapanışı gösterir.
    - Son İşlemler logları gösterir.
 5. **Public/QR link**
-   - Masa detayındaki URL `https://adisyon.minifabrika.online/t/<token>` formatında olmalı.
+   - Masa detayındaki URL `https://minifabrika.online/t/<token>` formatında olmalı.
