@@ -40,6 +40,7 @@ const logsCollection = 'tableActivityLogs';
 const publicTablesCollection = 'publicTables';
 const completedSessionsCollection = 'completedSessions';
 const salesLogsCollection = 'salesLogs';
+const cafesCollection = 'cafes';
 
 const now = () => Date.now();
 const toDayKey = (timestamp: number) => new Date(timestamp).toLocaleDateString('en-CA');
@@ -227,7 +228,7 @@ export function subscribeTodayClosedLogs(cafeId: string, sinceTimestamp: number,
 
 export function subscribeSalesLogsByDay(cafeId: string, dayKey: string, callback: (logs: SaleLog[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(collection(db, salesLogsCollection), where('cafeId', '==', cafeId), where('dayKey', '==', dayKey), orderBy('closedAt', 'desc'));
+  const q = query(collection(db, cafesCollection, cafeId, salesLogsCollection), where('dayKey', '==', dayKey), orderBy('closedAt', 'desc'));
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
@@ -240,7 +241,12 @@ async function createSaleLog(input: {
   items: CompletedSessionItemSnapshot[];
 }) {
   const { db } = assertFirebaseConfigured();
-  await addDoc(collection(db, salesLogsCollection), { ...input, dayKey: toDayKey(input.closedAt), createdAt: now() } satisfies Omit<SaleLog, 'id'>);
+  const payload = { ...input, dayKey: toDayKey(input.closedAt), createdAt: now() } satisfies Omit<SaleLog, 'id'>;
+  await addDoc(collection(db, cafesCollection, input.cafeId, salesLogsCollection), payload);
+  const reportRef = doc(db, cafesCollection, input.cafeId, 'dailyReports', payload.dayKey);
+  const reportSnap = await getDoc(reportRef);
+  const prev = reportSnap.exists() ? reportSnap.data() as { totalRevenue?: number; salesCount?: number } : {};
+  await setDoc(reportRef, { dayKey: payload.dayKey, totalRevenue: (prev.totalRevenue ?? 0) + payload.total, salesCount: (prev.salesCount ?? 0) + 1, updatedAt: now() }, { merge: true });
 }
 
 export function subscribeRecentTableItems(cafeId: string, sinceTimestamp: number, callback: (items: TableItem[]) => void, onError?: (message: string) => void) {
