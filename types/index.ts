@@ -66,6 +66,18 @@ export type CompletedSession = {
   createdAt: TimestampMs;
 };
 
+export type SaleLog = {
+  id: string;
+  cafeId: string;
+  tableId: string;
+  tableName: string;
+  closedAt: TimestampMs;
+  total: number;
+  items: CompletedSessionItemSnapshot[];
+  dayKey: string; // YYYY-MM-DD
+  createdAt: TimestampMs;
+};
+
 export type TableItem = {
   id: string;
   tableId: string;

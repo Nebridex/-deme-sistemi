@@ -23,11 +23,11 @@ import {
   subscribeCafeActivityLogs,
   subscribeCompletedSessions,
   subscribeRecentTableItems,
+  subscribeSalesLogsByDay,
   subscribeTables,
-  subscribeTodayClosedLogs,
   updateTable
 } from '@/lib/firestore';
-import type { CafeTable, CompletedSession, TableActivityLog } from '@/types';
+import type { CafeTable, CompletedSession, SaleLog, TableActivityLog } from '@/types';
 
 function AdminDashboardContent() {
   const router = useRouter();
@@ -44,7 +44,7 @@ function AdminDashboardContent() {
   const [recentItems, setRecentItems] = useState<string[]>([]);
   const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
   const [recentLogs, setRecentLogs] = useState<TableActivityLog[]>([]);
-  const [todayClosedLogs, setTodayClosedLogs] = useState<TableActivityLog[]>([]);
+  const [todaySalesLogs, setTodaySalesLogs] = useState<SaleLog[]>([]);
   const [topItemsToday, setTopItemsToday] = useState<Array<{ name: string; count: number }>>([]);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     fixedOccupied: false,
@@ -98,12 +98,12 @@ function AdminDashboardContent() {
 
   useEffect(() => {
     if (!user?.cafeId) return;
-    const startOfToday = getStartOfTodayTimestamp();
+    const dayKey = new Date().toLocaleDateString('en-CA');
     let unsub: (() => void) | undefined;
     try {
-      unsub = subscribeTodayClosedLogs(user.cafeId, startOfToday, setTodayClosedLogs);
+      unsub = subscribeSalesLogsByDay(user.cafeId, dayKey, setTodaySalesLogs);
     } catch (err) {
-      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] today closed logs subscription failed', err);
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] today sales logs subscription failed', err);
     }
     return () => unsub?.();
   }, [user?.cafeId]);
@@ -186,23 +186,19 @@ function AdminDashboardContent() {
     const fixedActive = fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending');
     const temporaryOpen = temporaryOrders.filter((table) => !table.deletedAt);
     const closedTodaySessions = completedSessions.filter((session) => session.closedAt >= startOfToday);
-    const closedTodayFallback = fixedTables.filter((table) => typeof table.closedAt === 'number' && table.closedAt >= startOfToday);
-    const closedTodayRevenueFallback = closedTodayFallback.reduce((sum, table) => sum + (table.closedAmountSnapshot ?? table.totalAmount), 0);
 
     return {
       openAccountAmount: [...fixedActive, ...temporaryOpen].reduce((sum, table) => sum + table.totalAmount, 0),
-      todayClosedCount: closedTodaySessions.length || todayClosedLogs.length || closedTodayFallback.length,
-      todayClosedRevenue: closedTodaySessions.length
-        ? closedTodaySessions.reduce((sum, session) => sum + session.totalAmount, 0)
-        : (todayClosedLogs.length
-          ? todayClosedLogs.reduce((sum, log) => sum + (typeof log.amountSnapshot === 'number' ? log.amountSnapshot : 0), 0)
-          : closedTodayRevenueFallback),
+      todayClosedCount: todaySalesLogs.length || closedTodaySessions.length,
+      todayClosedRevenue: todaySalesLogs.length
+        ? todaySalesLogs.reduce((sum, sale) => sum + sale.total, 0)
+        : closedTodaySessions.reduce((sum, session) => sum + session.totalAmount, 0),
       paymentPendingCount: fixedTables.filter((table) => table.status === 'payment_pending').length,
       occupiedCount: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending').length,
       readyCount: fixedTables.filter((table) => table.status === 'empty').length,
       temporaryOpenCount: temporaryOpen.length
     };
-  }, [completedSessions, fixedTables, temporaryOrders, todayClosedLogs]);
+  }, [completedSessions, fixedTables, temporaryOrders, todaySalesLogs]);
 
   const groupedFixed = useMemo(
     () => ({

@@ -159,6 +159,22 @@ service cloud.firestore {
     }
 
     /* =========================
+       SALES LOGS
+    ========================= */
+
+    match /salesLogs/{saleId} {
+      allow read: if isAuthenticated()
+        && resource.data.cafeId is string
+        && isOwnerOrManager(resource.data.cafeId);
+
+      allow create: if isAuthenticated()
+        && request.resource.data.cafeId is string
+        && isOwnerOrManager(request.resource.data.cafeId);
+
+      allow update, delete: if false;
+    }
+
+    /* =========================
        PAYMENTS
     ========================= */
 

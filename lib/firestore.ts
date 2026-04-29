@@ -23,9 +23,11 @@ import { calculateTableTotals } from '@/lib/domain/totals';
 import type {
   AdminIdentity,
   CafeTable,
+  CompletedSessionItemSnapshot,
   PublicTableBillView,
   PublicTableProjection,
   CompletedSession,
+  SaleLog,
   TableActivityLog,
   TableItem,
   TableStatus,
@@ -37,8 +39,10 @@ const itemsCollection = 'tableItems';
 const logsCollection = 'tableActivityLogs';
 const publicTablesCollection = 'publicTables';
 const completedSessionsCollection = 'completedSessions';
+const salesLogsCollection = 'salesLogs';
 
 const now = () => Date.now();
+const toDayKey = (timestamp: number) => new Date(timestamp).toLocaleDateString('en-CA');
 
 function toFirebaseErrorMessage(err: unknown) {
   if (err instanceof FirebaseError) return `${err.code}: ${err.message}`;
@@ -221,6 +225,24 @@ export function subscribeTodayClosedLogs(cafeId: string, sinceTimestamp: number,
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeSalesLogsByDay(cafeId: string, dayKey: string, callback: (logs: SaleLog[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(collection(db, salesLogsCollection), where('cafeId', '==', cafeId), where('dayKey', '==', dayKey), orderBy('closedAt', 'desc'));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
+}
+
+async function createSaleLog(input: {
+  cafeId: string;
+  tableId: string;
+  tableName: string;
+  closedAt: number;
+  total: number;
+  items: CompletedSessionItemSnapshot[];
+}) {
+  const { db } = assertFirebaseConfigured();
+  await addDoc(collection(db, salesLogsCollection), { ...input, dayKey: toDayKey(input.closedAt), createdAt: now() } satisfies Omit<SaleLog, 'id'>);
+}
+
 export function subscribeRecentTableItems(cafeId: string, sinceTimestamp: number, callback: (items: TableItem[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
   const q = query(
@@ -355,6 +377,18 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
   if (payload.name) await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'table_renamed', message: `Masa adı "${payload.name}" olarak güncellendi`, actorType: 'admin', actorId: actor?.uid ?? null });
   if (payload.status) await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'table_status_changed', message: `Durum ${statusLabel[payload.status]} olarak değiştirildi`, actorType: 'admin', actorId: actor?.uid ?? null });
   if (payload.status === 'closed' && previousStatus !== 'closed') {
+    const itemsSnap = await getDocs(
+      query(collection(db, itemsCollection), where('tableId', '==', tableId), where('cafeId', '==', effectiveCafeId), where('deletedAt', '==', null))
+    );
+    const items = itemsSnap.docs.map((d) => d.data() as Omit<TableItem, 'id'>);
+    await createSaleLog({
+      cafeId: effectiveCafeId,
+      tableId,
+      tableName: table.name,
+      closedAt: timestamp,
+      total: table.totalAmount,
+      items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
+    });
     await safeLogTableActivity({
       tableId,
       cafeId: effectiveCafeId,
@@ -452,6 +486,14 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
         lastActivityAt: timestamp
       });
       await syncPublicTableProjection(tableId, table.cafeId);
+      await createSaleLog({
+        cafeId: table.cafeId,
+        tableId,
+        tableName: table.name,
+        closedAt: timestamp,
+        total: table.totalAmount,
+        items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
+      });
       await safeLogTableActivity({
         tableId,
         cafeId: table.cafeId,
@@ -479,6 +521,14 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
       lastActivityAt: timestamp
     });
     await syncPublicTableProjection(tableId, table.cafeId);
+    await createSaleLog({
+      cafeId: table.cafeId,
+      tableId,
+      tableName: table.name,
+      closedAt: timestamp,
+      total: table.totalAmount,
+      items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
+    });
     await safeLogTableActivity({
       tableId,
       cafeId: table.cafeId,
