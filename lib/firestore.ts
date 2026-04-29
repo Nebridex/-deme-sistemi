@@ -667,21 +667,44 @@ export async function softDeleteTable(tableId: string, actor?: AdminIdentity | n
 export async function addTableItem(tableId: string, cafeId: string, name: string, quantity: number, unitPrice: number, actor?: AdminIdentity | null) {
   const { db } = assertFirebaseConfigured();
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
-  const tableCafeId = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>).cafeId : null;
+  const tableData = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>) : null;
+  const tableCafeId = tableData?.cafeId ?? null;
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
   await addDoc(collection(db, itemsCollection), item);
-  await addDoc(collection(db, cafesCollection, effectiveCafeId, productEventsCollection), {
-    cafeId: effectiveCafeId,
-    tableId,
-    productName: name,
-    quantity,
-    unitPrice,
-    dayKey: toDayKeyTR(timestamp),
-    createdAt: timestamp
-  });
-  await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
+  try {
+    const baseTotal = tableData?.totalAmount ?? 0;
+    const baseCount = tableData?.itemCount ?? 0;
+    await updateDoc(doc(db, tablesCollection, tableId), {
+      cafeId: effectiveCafeId,
+      totalAmount: baseTotal + (quantity * unitPrice),
+      itemCount: baseCount + quantity,
+      status: 'occupied',
+      updatedAt: timestamp,
+      lastActivityAt: timestamp
+    });
+  } catch (err) {
+    reportDevOnlyError(`Hızlı masa toplam güncellemesi başarısız: ${tableId}`, err);
+  }
+  try {
+    await addDoc(collection(db, cafesCollection, effectiveCafeId, productEventsCollection), {
+      cafeId: effectiveCafeId,
+      tableId,
+      productName: name,
+      quantity,
+      unitPrice,
+      dayKey: toDayKeyTR(timestamp),
+      createdAt: timestamp
+    });
+  } catch (err) {
+    reportDevOnlyError(`Opsiyonel productEvents yazımı başarısız: ${tableId}`, err);
+  }
+  try {
+    await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
+  } catch (err) {
+    reportDevOnlyError(`Opsiyonel recalculate başarısız: ${tableId}`, err);
+  }
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
