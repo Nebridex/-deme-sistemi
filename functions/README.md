@@ -1,18 +1,7 @@
-# Functions Scaffold (Sunucu Kontrollü Veri Bütünlüğü)
+# Functions Durumu
 
-Bu klasör, kritik bütünlük akışlarını istemciden backend'e taşıma sınırıdır.
+Bu pilot dağıtımda Cloud Functions **kullanılmaz**.
 
-## Hedef callable uçlar
-- `recomputeTableAggregates({ tableId, cafeId })`
-- `syncPublicTableProjection({ tableId, cafeId })`
-- `rotatePublicToken({ tableId, actorUid })` (yalnızca owner)
-
-## Mevcut durum
-- İstemci tarafında `lib/backendIntegrity.ts` callable uçları dener.
-- Fonksiyonlar henüz deploy edilmemişse otomatik olarak güvenli istemci fallback akışına döner.
-- Bu sayede mevcut çalışan akışlar bozulmadan backend geçişi hazırlanmış olur.
-
-## Üretime geçiş adımı
-1. `functions/src/integrity.js` dosyasını gerçek `firebase-functions` + `firebase-admin` koduyla tamamla.
-2. Callable uçları deploy et.
-3. Firestore kurallarında aggregate/projection alanları için doğrudan istemci update iznini daralt.
+- Uygulama çalışma zamanında yalnızca doğrudan Firestore istemci akışlarını kullanır.
+- `functions/src/integrity.js` yalnızca bilgilendirme amaçlı scaffold dosyasıdır.
+- Tarayıcı tarafında callable/Firebase Functions ağ çağrısı yapılmamalıdır.

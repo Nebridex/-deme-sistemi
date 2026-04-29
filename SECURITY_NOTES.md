@@ -24,12 +24,10 @@
 - Public customers must not read raw table docs.
 - Projection removes admin-only metadata and exposes token-keyed, safe read shape.
 
-## 4) Backend integrity preparation completed
-- `lib/backendIntegrity.ts` callable boundaries are in place:
-  - `recomputeTableAggregates`
-  - `syncPublicTableProjection`
-  - `rotatePublicToken`
-- If callable endpoints are unavailable, app falls back to existing client flow to avoid operational breakage.
+## 4) Backend integrity mode (pilot)
+- Cloud Functions çağrıları devre dışıdır.
+- `lib/backendIntegrity.ts` yalnızca no-op stub içerir.
+- Uygulama üretimde yalnızca doğrudan Firestore istemci akışlarını kullanır.
 
 ## 5) Why `cafeUsers` role assignment is backend-only
 - Client-side role mutation is blocked in rules.

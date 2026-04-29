@@ -72,14 +72,10 @@ If these are missing, the app shows a configuration error and blocks auth/data o
 - Yönetici oturumu Firebase Auth default persistence ile sürer.
 - Yönetici rotaları, auth listener + `cafeUsers` rol kontrolü ile korunur.
 - Dashboard ve müşteri sayfası `onSnapshot` ile gerçek zamanlıdır.
-- Kritik bütünlük akışları için callable sınırı hazırdır:
-  - `recomputeTableAggregates`
-  - `syncPublicTableProjection`
-  - `rotatePublicToken`
-  - Fonksiyonlar yoksa istemci fallback akışı devreye girer.
+- Kritik bütünlük akışları bu pilotta doğrudan Firestore istemci akışıyla çalışır.
 
 ## Güvenlik sınırı
-Toplam tutar / ürün adedi / public projection bütünlüğü için üretimde Cloud Functions + Admin SDK ile tam backend otoritesi önerilir. Bu repo, o geçiş için callable sınırını ve data modelini hazırlar.
+Toplam tutar / ürün adedi / public projection bütünlüğü bu pilotta istemci akışları ile yönetilir.
 
 ## Firestore kural durumu (hardening)
 - `publicTables` yazımı artık yalnızca admin-auth ve canonical `tables` verisiyle birebir uyumlu payload kabul eder.
