@@ -184,6 +184,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /cafes/{cafeId}/productEvents/{eventId} {
+      allow read, create: if isOwnerOrManager(cafeId);
+      allow update, delete: if false;
+    }
+
     /* =========================
        PAYMENTS
     ========================= */

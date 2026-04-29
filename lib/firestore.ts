@@ -41,9 +41,10 @@ const publicTablesCollection = 'publicTables';
 const completedSessionsCollection = 'completedSessions';
 const salesLogsCollection = 'salesLogs';
 const cafesCollection = 'cafes';
+const productEventsCollection = 'productEvents';
 
 const now = () => Date.now();
-const toDayKey = (timestamp: number) => new Date(timestamp).toLocaleDateString('en-CA');
+const toDayKeyTR = (timestamp: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date(timestamp));
 
 function toFirebaseErrorMessage(err: unknown) {
   if (err instanceof FirebaseError) return `${err.code}: ${err.message}`;
@@ -66,7 +67,8 @@ function toUserErrorMessage(err: unknown, fallback: string) {
 
 async function logTableActivity(input: Omit<TableActivityLog, 'id' | 'createdAt'>) {
   const { db } = assertFirebaseConfigured();
-  await addDoc(collection(db, logsCollection), { ...input, createdAt: now() });
+  const createdAt = now();
+  await addDoc(collection(db, logsCollection), { ...input, createdAt, dayKey: toDayKeyTR(createdAt) });
 }
 
 async function safeLogTableActivity(input: Omit<TableActivityLog, 'id' | 'createdAt'>) {
@@ -232,6 +234,28 @@ export function subscribeSalesLogsByDay(cafeId: string, dayKey: string, callback
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeTodayActivityLogsByDayKey(cafeId: string, dayKey: string, callback: (logs: TableActivityLog[]) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(collection(db, logsCollection), where('cafeId', '==', cafeId), where('dayKey', '==', dayKey), orderBy('createdAt', 'desc'), limit(20));
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableActivityLog, 'id'>) }))), (err) => onError?.(err.message));
+}
+
+export function subscribeTopProductsByDay(cafeId: string, dayKey: string, callback: (rows: Array<{ name: string; count: number }>) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(collection(db, cafesCollection, cafeId, productEventsCollection), where('dayKey', '==', dayKey), orderBy('createdAt', 'desc'), limit(200));
+  return onSnapshot(q, (snap) => {
+    const byName = new Map<string, { label: string; count: number }>();
+    for (const docSnap of snap.docs) {
+      const row = docSnap.data() as { productName: string; quantity: number };
+      const key = row.productName.trim().toLocaleLowerCase('tr-TR');
+      const existing = byName.get(key);
+      if (existing) existing.count += row.quantity;
+      else byName.set(key, { label: row.productName, count: row.quantity });
+    }
+    callback(Array.from(byName.values()).sort((a, b) => b.count - a.count).slice(0, 6).map((v) => ({ name: v.label, count: v.count })));
+  }, (err) => onError?.(err.message));
+}
+
 async function createSaleLog(input: {
   cafeId: string;
   tableId: string;
@@ -241,7 +265,7 @@ async function createSaleLog(input: {
   items: CompletedSessionItemSnapshot[];
 }) {
   const { db } = assertFirebaseConfigured();
-  const payload = { ...input, dayKey: toDayKey(input.closedAt), createdAt: now() } satisfies Omit<SaleLog, 'id'>;
+  const payload = { ...input, dayKey: toDayKeyTR(input.closedAt), createdAt: now() } satisfies Omit<SaleLog, 'id'>;
   await addDoc(collection(db, cafesCollection, input.cafeId, salesLogsCollection), payload);
   const reportRef = doc(db, cafesCollection, input.cafeId, 'dailyReports', payload.dayKey);
   const reportSnap = await getDoc(reportRef);
@@ -603,6 +627,15 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
   await addDoc(collection(db, itemsCollection), item);
+  await addDoc(collection(db, cafesCollection, effectiveCafeId, productEventsCollection), {
+    cafeId: effectiveCafeId,
+    tableId,
+    productName: name,
+    quantity,
+    unitPrice,
+    dayKey: toDayKeyTR(timestamp),
+    createdAt: timestamp
+  });
   try {
     await recomputeTableAggregates(tableId, effectiveCafeId);
   } catch (err) {

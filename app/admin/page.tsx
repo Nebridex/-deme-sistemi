@@ -9,7 +9,7 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { adminLogout } from '@/lib/auth';
 import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
-import { formatDateTime, getStartOfTodayTimestamp } from '@/lib/domain/time';
+import { formatDateTime } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
 import {
   addTableItem,
@@ -20,20 +20,18 @@ import {
   formatCurrency,
   formatFirestoreActionError,
   softDeleteTable,
-  subscribeCafeActivityLogs,
-  subscribeCompletedSessions,
-  subscribeRecentTableItems,
+  subscribeTodayActivityLogsByDayKey,
+  subscribeTopProductsByDay,
   subscribeSalesLogsByDay,
   subscribeTables,
   updateTable
 } from '@/lib/firestore';
-import type { CafeTable, CompletedSession, SaleLog, TableActivityLog } from '@/types';
+import type { CafeTable, SaleLog, TableActivityLog } from '@/types';
 
 function AdminDashboardContent() {
   const router = useRouter();
   const { user } = useAdminAuth();
   const [tables, setTables] = useState<CafeTable[]>([]);
-  const [completedSessions, setCompletedSessions] = useState<CompletedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
@@ -85,20 +83,11 @@ function AdminDashboardContent() {
     }
   }, [sectionStorageKey]);
 
-  useEffect(() => {
-    if (!user?.cafeId) return;
-    let unsub: (() => void) | undefined;
-    try {
-      unsub = subscribeCafeActivityLogs(user.cafeId, setRecentLogs);
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] logs subscription failed', err);
-    }
-    return () => unsub?.();
-  }, [user?.cafeId]);
+  const todayDayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
 
   useEffect(() => {
     if (!user?.cafeId) return;
-    const dayKey = new Date().toLocaleDateString('en-CA');
+    const dayKey = todayDayKey;
     let unsub: (() => void) | undefined;
     try {
       unsub = subscribeSalesLogsByDay(user.cafeId, dayKey, setTodaySalesLogs);
@@ -106,48 +95,29 @@ function AdminDashboardContent() {
       if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] today sales logs subscription failed', err);
     }
     return () => unsub?.();
-  }, [user?.cafeId]);
-
-  useEffect(() => {
-    if (!user?.cafeId) return;
-    const startOfToday = getStartOfTodayTimestamp();
-    let unsub: (() => void) | undefined;
-    try {
-      unsub = subscribeRecentTableItems(user.cafeId, startOfToday, (items) => {
-        const byName = new Map<string, { label: string; count: number }>();
-        for (const item of items) {
-          const normalized = item.name.trim().toLocaleLowerCase('tr-TR');
-          if (!normalized) continue;
-          const existing = byName.get(normalized);
-          if (existing) {
-            existing.count += item.quantity;
-            continue;
-          }
-          byName.set(normalized, { label: item.name.trim(), count: item.quantity });
-        }
-        setTopItemsToday(
-          Array.from(byName.entries())
-            .sort((a, b) => b[1].count - a[1].count)
-            .slice(0, 6)
-            .map(([, value]) => ({ name: value.label, count: value.count }))
-        );
-      });
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] recent items subscription failed', err);
-    }
-    return () => unsub?.();
-  }, [user?.cafeId]);
+  }, [todayDayKey, user?.cafeId]);
 
   useEffect(() => {
     if (!user?.cafeId) return;
     let unsub: (() => void) | undefined;
     try {
-      unsub = subscribeCompletedSessions(user.cafeId, setCompletedSessions);
+      unsub = subscribeTodayActivityLogsByDayKey(user.cafeId, todayDayKey, setRecentLogs);
     } catch (err) {
-      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] completed sessions subscription failed', err);
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] logs subscription failed', err);
     }
     return () => unsub?.();
-  }, [user?.cafeId]);
+  }, [todayDayKey, user?.cafeId]);
+
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeTopProductsByDay(user.cafeId, todayDayKey, setTopItemsToday);
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') console.error('[admin/dashboard] product events subscription failed', err);
+    }
+    return () => unsub?.();
+  }, [todayDayKey, user?.cafeId]);
 
   useEffect(() => {
     setLoading(true);
@@ -182,23 +152,19 @@ function AdminDashboardContent() {
   );
 
   const summary = useMemo(() => {
-    const startOfToday = getStartOfTodayTimestamp();
-    const fixedActive = fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending');
+        const fixedActive = fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending');
     const temporaryOpen = temporaryOrders.filter((table) => !table.deletedAt);
-    const closedTodaySessions = completedSessions.filter((session) => session.closedAt >= startOfToday);
-
+    
     return {
       openAccountAmount: [...fixedActive, ...temporaryOpen].reduce((sum, table) => sum + table.totalAmount, 0),
-      todayClosedCount: todaySalesLogs.length || closedTodaySessions.length,
-      todayClosedRevenue: todaySalesLogs.length
-        ? todaySalesLogs.reduce((sum, sale) => sum + sale.total, 0)
-        : closedTodaySessions.reduce((sum, session) => sum + session.totalAmount, 0),
+      todayClosedCount: todaySalesLogs.length,
+      todayClosedRevenue: todaySalesLogs.reduce((sum, sale) => sum + sale.total, 0),
       paymentPendingCount: fixedTables.filter((table) => table.status === 'payment_pending').length,
       occupiedCount: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending').length,
       readyCount: fixedTables.filter((table) => table.status === 'empty').length,
       temporaryOpenCount: temporaryOpen.length
     };
-  }, [completedSessions, fixedTables, temporaryOrders, todaySalesLogs]);
+  }, [fixedTables, temporaryOrders, todaySalesLogs]);
 
   const groupedFixed = useMemo(
     () => ({
@@ -424,17 +390,17 @@ function AdminDashboardContent() {
             </div>
             {!collapsedSections.completedHistory && (
               <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {completedSessions.map((session) => (
+                {todaySalesLogs.map((session) => (
                   <li key={session.id} className="rounded-lg border border-violet-200 bg-white p-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <p className="font-medium">{session.sourceTableName}</p>
-                      <p className="text-xs text-violet-700">{session.sourceEntityType === 'fixed_table' ? 'Sabit Masa' : 'Geçici Sipariş'}</p>
+                      <p className="font-medium">{session.tableName}</p>
+                      <p className="text-xs text-violet-700">Satış</p>
                     </div>
                     <p className="text-xs text-slate-500">Kapanış: {formatDateTime(session.closedAt)}</p>
-                    <p className="text-xs font-semibold text-slate-700">{formatCurrency(session.totalAmount)}</p>
+                    <p className="text-xs font-semibold text-slate-700">{formatCurrency(session.total)}</p>
                   </li>
                 ))}
-                {!completedSessions.length && <li className="rounded-lg border border-dashed border-violet-200 bg-white p-3 text-sm text-violet-700">Henüz tamamlanan adisyon yok.</li>}
+                {!todaySalesLogs.length && <li className="rounded-lg border border-dashed border-violet-200 bg-white p-3 text-sm text-violet-700">Bugün tamamlanan adisyon yok.</li>}
               </ul>
             )}
           </section>
