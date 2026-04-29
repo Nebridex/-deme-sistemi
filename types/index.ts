@@ -71,8 +71,10 @@ export type SaleLog = {
   cafeId: string;
   tableId: string;
   tableName: string;
+  sessionId: string | null;
   closedAt: TimestampMs;
   total: number;
+  itemCount: number;
   items: CompletedSessionItemSnapshot[];
   dayKey: string; // YYYY-MM-DD
   createdAt: TimestampMs;

@@ -309,8 +309,10 @@ async function createSaleLog(input: {
   cafeId: string;
   tableId: string;
   tableName: string;
+  sessionId: string | null;
   closedAt: number;
   total: number;
+  itemCount: number;
   items: CompletedSessionItemSnapshot[];
 }) {
   const { db } = assertFirebaseConfigured();
@@ -373,9 +375,8 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
     createdAt: timestamp
   } satisfies Omit<CompletedSession, 'id'>;
 
-  await addDoc(collection(db, completedSessionsCollection), payload);
-
-  return { table: { ...table, cafeId }, items, timestamp };
+  const sessionRef = await addDoc(collection(db, completedSessionsCollection), payload);
+  return { table: { ...table, cafeId }, items, timestamp, sessionId: sessionRef.id };
 }
 
 export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
@@ -464,8 +465,10 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
       cafeId: effectiveCafeId,
       tableId,
       tableName: table.name,
+      sessionId: null,
       closedAt: timestamp,
       total: table.totalAmount,
+      itemCount: table.itemCount,
       items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
     });
     await safeLogTableActivity({
@@ -523,11 +526,13 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
   let table: { id: string } & Omit<CafeTable, 'id'>;
   let items: Array<{ id: string } & Omit<TableItem, 'id'>>;
   let timestamp: number;
+  let sessionId: string;
   try {
     const snapshot = await createCompletedSessionSnapshot(tableId, actor);
     table = snapshot.table;
     items = snapshot.items;
     timestamp = snapshot.timestamp;
+    sessionId = snapshot.sessionId;
   } catch (err) {
     throw new Error(`Tamamlanan adisyon kaydı oluşturulamadı (completedSessions/${tableId}): ${toFirebaseErrorMessage(err)}`);
   }
@@ -551,6 +556,9 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
   }
 
   if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
+    const debugDayKey = formatDayKeyTR(timestamp);
+    const salesLogPath = `${cafesCollection}/${table.cafeId}/${salesLogsCollection}`;
+    console.info('[completeTableSession] closing fixed table', { tableId, cafeId: table.cafeId, sessionId, totalAmount: table.totalAmount, itemCount: table.itemCount, dayKey: debugDayKey, salesLogPath });
     await updateDoc(doc(db, tablesCollection, tableId), {
       entityType: 'fixed_table',
       status: 'empty',
@@ -565,15 +573,23 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
     });
     try { await syncPublicTableProjection(tableId, table.cafeId); } catch (err) { reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err); }
     try {
-      await createSaleLog({
+      const payload = {
         cafeId: table.cafeId,
         tableId,
         tableName: table.name,
+        sessionId,
         closedAt: timestamp,
         total: table.totalAmount,
+        itemCount: table.itemCount,
         items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
-      });
-    } catch (err) { reportDevOnlyError(`Opsiyonel sales log yazımı başarısız: ${tableId}`, err); }
+      };
+      console.info('[completeTableSession] salesLog payload', payload);
+      await createSaleLog(payload);
+      console.info('[completeTableSession] salesLog write success', { tableId, salesLogPath });
+    } catch (err) {
+      console.error('[completeTableSession] salesLog write failed', { tableId, cafeId: table.cafeId, sessionId, salesLogPath, error: toFirebaseErrorMessage(err) });
+      throw new Error(`Adisyon kapatılamadı: satış kaydı oluşturulamadı. ${toFirebaseErrorMessage(err)}`);
+    }
     await safeLogTableActivity({
       tableId,
       cafeId: table.cafeId,
@@ -586,6 +602,9 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
     return;
   }
 
+  const debugDayKey = formatDayKeyTR(timestamp);
+  const salesLogPath = `${cafesCollection}/${table.cafeId}/${salesLogsCollection}`;
+  console.info('[completeTableSession] closing temporary order', { tableId, cafeId: table.cafeId, sessionId, totalAmount: table.totalAmount, itemCount: table.itemCount, dayKey: debugDayKey, salesLogPath });
   await updateDoc(doc(db, tablesCollection, tableId), {
     entityType: 'temporary_order',
     status: 'closed',
@@ -598,15 +617,23 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
   });
   try { await syncPublicTableProjection(tableId, table.cafeId); } catch (err) { reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err); }
   try {
-    await createSaleLog({
+    const payload = {
       cafeId: table.cafeId,
       tableId,
       tableName: table.name,
+      sessionId,
       closedAt: timestamp,
       total: table.totalAmount,
+      itemCount: table.itemCount,
       items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
-    });
-  } catch (err) { reportDevOnlyError(`Opsiyonel sales log yazımı başarısız: ${tableId}`, err); }
+    };
+    console.info('[completeTableSession] salesLog payload', payload);
+    await createSaleLog(payload);
+    console.info('[completeTableSession] salesLog write success', { tableId, salesLogPath });
+  } catch (err) {
+    console.error('[completeTableSession] salesLog write failed', { tableId, cafeId: table.cafeId, sessionId, salesLogPath, error: toFirebaseErrorMessage(err) });
+    throw new Error(`Adisyon kapatılamadı: satış kaydı oluşturulamadı. ${toFirebaseErrorMessage(err)}`);
+  }
   await safeLogTableActivity({
     tableId,
     cafeId: table.cafeId,

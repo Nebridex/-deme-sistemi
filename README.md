@@ -84,6 +84,17 @@ Toplam tutar / ürün adedi / public projection bütünlüğü bu pilotta istemc
 - `payments`, `splitSessions`, `tableSettlements` koleksiyonları istemciye tamamen kapalıdır.
 - Geçiş dönemi uyumluluğu için client fallback projection/log yazımları hâlâ minimum ölçüde açık tutulur; callable deploy sonrası backend-only yapılmalıdır.
 
+## Pilot manuel test checklist (prod)
+1. Masa aç.
+2. Aynı masaya 2 ürün ekle.
+3. Masa kartında `Toplam` ve `Ürün` alanlarının anlık güncellendiğini doğrula.
+4. `Adisyonu Kapat` işlemini yap.
+5. Firestore'da `cafes/{cafeId}/salesLogs/{saleId}` kaydının oluştuğunu doğrula.
+6. Dashboard'da `Bugünkü Kapanan Masa Cirosu` metrik artışını doğrula.
+7. Sayfayı F5 ile yenile.
+8. Ciro/metriklerin korunup korunmadığını doğrula.
+9. `/admin/reports` sayfasında ilgili masanın ciro/satış kaydını doğrula.
+
 ## Production smoke test checklist (manual)
 1. **Admin login**
    - `/admin/login` ile giriş yapılır.

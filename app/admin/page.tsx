@@ -84,6 +84,10 @@ function AdminDashboardContent() {
   }, [sectionStorageKey]);
 
   const todayDayKey = getTodayDayKeyTR();
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    console.info('[dashboard] dayKey context', { cafeId: user.cafeId, todayDayKey });
+  }, [todayDayKey, user?.cafeId]);
 
   useEffect(() => {
     if (!user?.cafeId) return;
