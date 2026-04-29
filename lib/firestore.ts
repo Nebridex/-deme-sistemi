@@ -162,6 +162,33 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
   }
 }
 
+async function recalculateTableSnapshotFromItems(tableId: string, cafeId: string) {
+  const { db } = assertFirebaseConfigured();
+  const tableRef = doc(db, tablesCollection, tableId);
+  const tableSnap = await getDoc(tableRef);
+  if (!tableSnap.exists()) return;
+  const table = tableSnap.data() as Omit<CafeTable, 'id'>;
+  const effectiveCafeId = table.cafeId ?? cafeId ?? DEFAULT_CAFE_ID;
+  const itemsSnap = await getDocs(
+    query(
+      collection(db, itemsCollection),
+      where('tableId', '==', tableId),
+      where('cafeId', '==', effectiveCafeId),
+      where('deletedAt', '==', null)
+    )
+  );
+  const items = itemsSnap.docs.map((d) => d.data() as TableItem);
+  const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+  const currentTotal = items.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
+  const status: TableStatus = itemCount === 0
+    ? 'empty'
+    : table.status === 'payment_pending' || table.status === 'closed'
+      ? table.status
+      : 'occupied';
+  const timestamp = now();
+  await updateDoc(tableRef, { itemCount, totalAmount: currentTotal, status, updatedAt: timestamp, lastActivityAt: timestamp, cafeId: effectiveCafeId });
+}
+
 export async function recomputeTableAggregates(tableId: string, cafeId: string) {
   await recomputeTableAggregatesDirect(tableId, cafeId);
 }
@@ -654,11 +681,7 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
     dayKey: toDayKeyTR(timestamp),
     createdAt: timestamp
   });
-  try {
-    await recomputeTableAggregates(tableId, effectiveCafeId);
-  } catch (err) {
-    reportDevOnlyError(`Opsiyonel aggregate hesaplama başarısız: ${tableId}`, err);
-  }
+  await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
@@ -669,7 +692,7 @@ export async function editTableItem(itemId: string, payload: Pick<TableItem, 'na
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? payload.cafeId ?? DEFAULT_CAFE_ID;
   const totalPrice = payload.quantity * payload.unitPrice;
   await updateDoc(doc(db, itemsCollection, itemId), { ...payload, cafeId: effectiveCafeId, totalPrice, updatedAt: now() });
-  await recomputeTableAggregates(payload.tableId, effectiveCafeId);
+  await recalculateTableSnapshotFromItems(payload.tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId: payload.tableId, cafeId: effectiveCafeId, actionType: 'item_edited', message: `${payload.name} güncellendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
@@ -679,7 +702,7 @@ export async function softDeleteTableItem(itemId: string, tableId: string, cafeI
   const tableCafeId = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>).cafeId : null;
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
   await updateDoc(doc(db, itemsCollection, itemId), { deletedAt: now(), updatedAt: now() });
-  await recomputeTableAggregates(tableId, effectiveCafeId);
+  await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_removed', message: 'Ürün kaldırıldı', actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
