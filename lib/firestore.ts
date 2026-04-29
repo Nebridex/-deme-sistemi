@@ -20,11 +20,6 @@ import { assertFirebaseConfigured } from '@/lib/firebase';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { generatePublicToken } from '@/lib/domain/token';
 import { calculateTableTotals } from '@/lib/domain/totals';
-import {
-  callBackendRecomputeTableAggregates,
-  callBackendRotatePublicToken,
-  callBackendSyncPublicProjection
-} from '@/lib/backendIntegrity';
 import type {
   AdminIdentity,
   CafeTable,
@@ -110,8 +105,6 @@ async function syncPublicTableProjectionDirect(tableId: string, cafeId: string) 
 }
 
 export async function syncPublicTableProjection(tableId: string, cafeId: string) {
-  const usedFunction = await callBackendSyncPublicProjection({ tableId, cafeId });
-  if (usedFunction) return;
   await syncPublicTableProjectionDirect(tableId, cafeId);
 }
 
@@ -125,6 +118,7 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     query(
       collection(db, itemsCollection),
       where('tableId', '==', tableId),
+      where('cafeId', '==', effectiveCafeId),
       where('deletedAt', '==', null)
     )
   );
@@ -154,12 +148,14 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     throw new Error(`Aggregate table update failed (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
   }
 
-  await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
+  try {
+    await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
+  } catch (err) {
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
+  }
 }
 
 export async function recomputeTableAggregates(tableId: string, cafeId: string) {
-  const usedFunction = await callBackendRecomputeTableAggregates({ tableId, cafeId });
-  if (usedFunction) return;
   await recomputeTableAggregatesDirect(tableId, cafeId);
 }
 
@@ -498,9 +494,6 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
-  const functionToken = await callBackendRotatePublicToken({ tableId: table.id, actorUid: actor.uid });
-  if (functionToken) return functionToken;
-
   const { db } = assertFirebaseConfigured();
   if (actor.role !== 'owner') throw new Error('Sadece işletme sahibi QR bağlantısını yenileyebilir.');
 
@@ -528,7 +521,14 @@ export async function softDeleteTable(tableId: string, actor?: AdminIdentity | n
   const effectiveCafeId = actor?.cafeId ?? table.cafeId ?? DEFAULT_CAFE_ID;
 
   await updateDoc(doc(db, tablesCollection, tableId), { deletedAt: now(), updatedAt: now(), cafeId: effectiveCafeId });
-  const itemsSnap = await getDocs(query(collection(db, itemsCollection), where('tableId', '==', tableId), where('deletedAt', '==', null)));
+  const itemsSnap = await getDocs(
+    query(
+      collection(db, itemsCollection),
+      where('tableId', '==', tableId),
+      where('cafeId', '==', effectiveCafeId),
+      where('deletedAt', '==', null)
+    )
+  );
   await Promise.all(itemsSnap.docs.map((d) => updateDoc(doc(db, itemsCollection, d.id), { deletedAt: now(), updatedAt: now() })));
 
   try {
@@ -546,17 +546,8 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
-  const itemRef = await addDoc(collection(db, itemsCollection), item);
-  try {
-    await recomputeTableAggregates(tableId, effectiveCafeId);
-  } catch (err) {
-    try {
-      await deleteDoc(itemRef);
-    } catch (rollbackErr) {
-      reportDevOnlyError(`addTableItem rollback failed (tableItems/${itemRef.id})`, rollbackErr);
-    }
-    throw new Error(`Ürün eklendi ancak masa toplamı güncellenemedi. İşlem geri alındı: ${toFirebaseErrorMessage(err)}`);
-  }
+  await addDoc(collection(db, itemsCollection), item);
+  await recomputeTableAggregates(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
