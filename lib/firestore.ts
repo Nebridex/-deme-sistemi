@@ -148,7 +148,11 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
     throw new Error(`Aggregate table update failed (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
   }
 
-  await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
+  try {
+    await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
+  } catch (err) {
+    reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err);
+  }
 }
 
 export async function recomputeTableAggregates(tableId: string, cafeId: string) {
@@ -542,17 +546,8 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
-  const itemRef = await addDoc(collection(db, itemsCollection), item);
-  try {
-    await recomputeTableAggregates(tableId, effectiveCafeId);
-  } catch (err) {
-    try {
-      await deleteDoc(itemRef);
-    } catch (rollbackErr) {
-      reportDevOnlyError(`addTableItem rollback failed (tableItems/${itemRef.id})`, rollbackErr);
-    }
-    throw new Error(`Ürün eklendi ancak masa toplamı güncellenemedi. İşlem geri alındı: ${toFirebaseErrorMessage(err)}`);
-  }
+  await addDoc(collection(db, itemsCollection), item);
+  await recomputeTableAggregates(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
