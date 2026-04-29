@@ -5,12 +5,14 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebas
 import { assertFirebaseConfigured } from '@/lib/firebase';
 import type { AdminIdentity, CafeUser } from '@/types';
 
+const MISSING_CAFE_USER_ERROR = 'Bu kullanıcı için işletme tanımlı değil. Lütfen sistem yöneticisiyle iletişime geçin.';
+
 async function buildIdentity(uid: string, email: string | null): Promise<AdminIdentity | null> {
   const { db } = assertFirebaseConfigured();
   const snap = await getDoc(doc(db, 'cafeUsers', uid));
-  if (!snap.exists()) return null;
+  if (!snap.exists()) throw new Error(MISSING_CAFE_USER_ERROR);
   const cafeUser = snap.data() as CafeUser;
-  if (cafeUser.role !== 'owner' && cafeUser.role !== 'manager') return null;
+  if (cafeUser.role !== 'owner' && cafeUser.role !== 'manager') throw new Error(MISSING_CAFE_USER_ERROR);
 
   return {
     uid,

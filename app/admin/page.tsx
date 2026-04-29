@@ -8,7 +8,6 @@ import { TableCard } from '@/app/components/TableCard';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { adminLogout } from '@/lib/auth';
 import { canManageTables } from '@/lib/domain/permissions';
-import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { formatDateTime, getTodayDayKeyTR } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
 import {
@@ -52,7 +51,7 @@ function AdminDashboardContent() {
     legacyClosed: true
   });
 
-  const sectionStorageKey = `odeme-dashboard-collapsed-${user?.cafeId ?? DEFAULT_CAFE_ID}`;
+  const sectionStorageKey = `odeme-dashboard-collapsed-${user?.cafeId ?? 'no-cafe'}`;
 
   useEffect(() => {
     setOffline(!navigator.onLine);
@@ -128,8 +127,13 @@ function AdminDashboardContent() {
     setError(null);
     let unsub: (() => void) | undefined;
     try {
+      if (!user?.cafeId) {
+        setError('Bu kullanıcı için işletme tanımlı değil. Lütfen sistem yöneticisiyle iletişime geçin.');
+        setLoading(false);
+        return;
+      }
       unsub = subscribeTables(
-        user?.cafeId ?? DEFAULT_CAFE_ID,
+        user.cafeId,
         (nextTables) => {
           setTables(nextTables);
           setLoading(false);

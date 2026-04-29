@@ -95,6 +95,18 @@ Toplam tutar / ürün adedi / public projection bütünlüğü bu pilotta istemc
 8. Ciro/metriklerin korunup korunmadığını doğrula.
 9. `/admin/reports` sayfasında ilgili masanın ciro/satış kaydını doğrula.
 
+## Çoklu işletme onboarding (manuel davet)
+Bu sistemde her Firebase Auth kullanıcısı yalnızca **tek bir** `cafeId` kullanır.
+Public signup yoktur.
+
+1. Firebase Console → Authentication → kullanıcıyı email/password ile ekle.
+2. Kullanıcının `uid` bilgisini kopyala.
+3. Firestore'da `cafes/{newCafeId}` oluştur:
+   - `name`, `status: "active"`, `ownerUid`, `createdAt`, `updatedAt`
+4. Firestore'da `cafeUsers/{uid}` oluştur:
+   - `email`, `role: "owner" | "manager"`, `cafeId: newCafeId`, `createdAt`, `updatedAt`
+5. Kullanıcı `/admin/login` ile giriş yaptığında yalnızca kendi `cafeId` verisini görür.
+
 ## Production smoke test checklist (manual)
 1. **Admin login**
    - `/admin/login` ile giriş yapılır.
