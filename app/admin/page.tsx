@@ -9,7 +9,7 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { adminLogout } from '@/lib/auth';
 import { canManageTables } from '@/lib/domain/permissions';
 import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
-import { formatDateTime } from '@/lib/domain/time';
+import { formatDateTime, getTodayDayKeyTR } from '@/lib/domain/time';
 import { getPresetItems, getRecentItemNames, rememberRecentItemName, type PresetItemShortcut } from '@/lib/domain/recentItems';
 import {
   addTableItem,
@@ -83,7 +83,7 @@ function AdminDashboardContent() {
     }
   }, [sectionStorageKey]);
 
-  const todayDayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
+  const todayDayKey = getTodayDayKeyTR();
 
   useEffect(() => {
     if (!user?.cafeId) return;
