@@ -234,6 +234,24 @@ export function subscribeSalesLogsByDay(cafeId: string, dayKey: string, callback
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeSalesLogsByRange(
+  cafeId: string,
+  fromTimestamp: number,
+  toTimestamp: number,
+  callback: (logs: SaleLog[]) => void,
+  onError?: (message: string) => void
+) {
+  const { db } = assertFirebaseConfigured();
+  const q = query(
+    collection(db, cafesCollection, cafeId, salesLogsCollection),
+    where('closedAt', '>=', fromTimestamp),
+    where('closedAt', '<=', toTimestamp),
+    orderBy('closedAt', 'desc'),
+    limit(1000)
+  );
+  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
+}
+
 export function subscribeTodayActivityLogsByDayKey(cafeId: string, dayKey: string, callback: (logs: TableActivityLog[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
   const q = query(collection(db, logsCollection), where('cafeId', '==', cafeId), where('dayKey', '==', dayKey), orderBy('createdAt', 'desc'), limit(20));

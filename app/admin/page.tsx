@@ -253,10 +253,13 @@ function AdminDashboardContent() {
             <h1 className="text-2xl font-bold">Kafe Yönetim Paneli</h1>
             <p className="text-sm text-slate-600">Sabit masaları ve geçici siparişleri aynı operasyon ekranından yönetin.</p>
           </div>
-          <button className="rounded-lg border px-4 py-2 text-sm" onClick={async () => {
-            await adminLogout();
-            router.replace('/admin/login');
-          }}>Çıkış</button>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/reports" className="rounded-lg border px-4 py-2 text-sm">Raporlar</Link>
+            <button className="rounded-lg border px-4 py-2 text-sm" onClick={async () => {
+              await adminLogout();
+              router.replace('/admin/login');
+            }}>Çıkış</button>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
