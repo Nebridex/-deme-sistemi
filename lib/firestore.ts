@@ -257,8 +257,12 @@ export function subscribeTodayClosedLogs(cafeId: string, sinceTimestamp: number,
 
 export function subscribeSalesLogsByDay(cafeId: string, dayKey: string, callback: (logs: SaleLog[]) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(collection(db, cafesCollection, cafeId, salesLogsCollection), where('dayKey', '==', dayKey), orderBy('closedAt', 'desc'));
-  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }))), (err) => onError?.(err.message));
+  const q = query(collection(db, cafesCollection, cafeId, salesLogsCollection), where('dayKey', '==', dayKey), limit(200));
+  return onSnapshot(q, (snap) => {
+    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SaleLog, 'id'>) }));
+    rows.sort((a, b) => b.closedAt - a.closedAt);
+    callback(rows);
+  }, (err) => onError?.(err.message));
 }
 
 export function subscribeSalesLogsByRange(
@@ -287,7 +291,7 @@ export function subscribeTodayActivityLogsByDayKey(cafeId: string, dayKey: strin
 
 export function subscribeTopProductsByDay(cafeId: string, dayKey: string, callback: (rows: Array<{ name: string; count: number }>) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
-  const q = query(collection(db, cafesCollection, cafeId, productEventsCollection), where('dayKey', '==', dayKey), orderBy('createdAt', 'desc'), limit(200));
+  const q = query(collection(db, cafesCollection, cafeId, productEventsCollection), where('dayKey', '==', dayKey), limit(400));
   return onSnapshot(q, (snap) => {
     const byName = new Map<string, { label: string; count: number }>();
     for (const docSnap of snap.docs) {
@@ -547,20 +551,20 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
   }
 
   if ((table.entityType ?? 'fixed_table') === 'fixed_table') {
+    await updateDoc(doc(db, tablesCollection, tableId), {
+      entityType: 'fixed_table',
+      status: 'empty',
+      totalAmount: 0,
+      itemCount: 0,
+      openedAt: null,
+      closedAt: timestamp,
+      closedAmountSnapshot: table.totalAmount,
+      lastStatusChangedAt: timestamp,
+      updatedAt: timestamp,
+      lastActivityAt: timestamp
+    });
+    try { await syncPublicTableProjection(tableId, table.cafeId); } catch (err) { reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err); }
     try {
-      await updateDoc(doc(db, tablesCollection, tableId), {
-        entityType: 'fixed_table',
-        status: 'empty',
-        totalAmount: 0,
-        itemCount: 0,
-        openedAt: null,
-        closedAt: timestamp,
-        closedAmountSnapshot: table.totalAmount,
-        lastStatusChangedAt: timestamp,
-        updatedAt: timestamp,
-        lastActivityAt: timestamp
-      });
-      await syncPublicTableProjection(tableId, table.cafeId);
       await createSaleLog({
         cafeId: table.cafeId,
         tableId,
@@ -569,33 +573,31 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
         total: table.totalAmount,
         items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
       });
-      await safeLogTableActivity({
-        tableId,
-        cafeId: table.cafeId,
-        actionType: 'table_closed',
-        message: 'Adisyon tamamlandı, masa yeni müşteri için hazır',
-        amountSnapshot: table.totalAmount,
-        actorType: 'admin',
-        actorId: actor?.uid ?? null
-      });
-    } catch (err) {
-      throw new Error(`Sabit masa kapanış güncellemesi başarısız (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
-    }
+    } catch (err) { reportDevOnlyError(`Opsiyonel sales log yazımı başarısız: ${tableId}`, err); }
+    await safeLogTableActivity({
+      tableId,
+      cafeId: table.cafeId,
+      actionType: 'table_closed',
+      message: 'Adisyon tamamlandı, masa yeni müşteri için hazır',
+      amountSnapshot: table.totalAmount,
+      actorType: 'admin',
+      actorId: actor?.uid ?? null
+    });
     return;
   }
 
+  await updateDoc(doc(db, tablesCollection, tableId), {
+    entityType: 'temporary_order',
+    status: 'closed',
+    deletedAt: timestamp,
+    closedAt: timestamp,
+    closedAmountSnapshot: table.totalAmount,
+    lastStatusChangedAt: timestamp,
+    updatedAt: timestamp,
+    lastActivityAt: timestamp
+  });
+  try { await syncPublicTableProjection(tableId, table.cafeId); } catch (err) { reportDevOnlyError(`Opsiyonel public projection senkronu başarısız: ${tableId}`, err); }
   try {
-    await updateDoc(doc(db, tablesCollection, tableId), {
-      entityType: 'temporary_order',
-      status: 'closed',
-      deletedAt: timestamp,
-      closedAt: timestamp,
-      closedAmountSnapshot: table.totalAmount,
-      lastStatusChangedAt: timestamp,
-      updatedAt: timestamp,
-      lastActivityAt: timestamp
-    });
-    await syncPublicTableProjection(tableId, table.cafeId);
     await createSaleLog({
       cafeId: table.cafeId,
       tableId,
@@ -604,18 +606,16 @@ export async function completeTableSession(tableId: string, actor?: AdminIdentit
       total: table.totalAmount,
       items: items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice }))
     });
-    await safeLogTableActivity({
-      tableId,
-      cafeId: table.cafeId,
-      actionType: 'table_closed',
-      message: 'Geçici sipariş tamamlandı ve geçmişe taşındı',
-      amountSnapshot: table.totalAmount,
-      actorType: 'admin',
-      actorId: actor?.uid ?? null
-    });
-  } catch (err) {
-    throw new Error(`Geçici sipariş kapanış güncellemesi başarısız (tables/${tableId}): ${toFirebaseErrorMessage(err)}`);
-  }
+  } catch (err) { reportDevOnlyError(`Opsiyonel sales log yazımı başarısız: ${tableId}`, err); }
+  await safeLogTableActivity({
+    tableId,
+    cafeId: table.cafeId,
+    actionType: 'table_closed',
+    message: 'Geçici sipariş tamamlandı ve geçmişe taşındı',
+    amountSnapshot: table.totalAmount,
+    actorType: 'admin',
+    actorId: actor?.uid ?? null
+  });
 }
 
 export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
