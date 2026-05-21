@@ -39,17 +39,21 @@ service cloud.firestore {
       return isOwner(cafeId) || isManager(cafeId);
     }
 
-    function canAccessByResourceOrRequestCafeId() {
-      return isAuthenticated() && (
-        (
-          resource.data.cafeId is string &&
-          isOwnerOrManager(resource.data.cafeId)
-        ) ||
-        (
-          request.resource.data.cafeId is string &&
-          isOwnerOrManager(request.resource.data.cafeId)
-        )
-      );
+    function canReadCafeScopedResource() {
+      return isAuthenticated() &&
+        resource.data.cafeId is string &&
+        isOwnerOrManager(resource.data.cafeId);
+    }
+
+    function canCreateCafeScopedResource() {
+      return isAuthenticated() &&
+        request.resource.data.cafeId is string &&
+        isOwnerOrManager(request.resource.data.cafeId);
+    }
+
+    function canUpdateCafeScopedResource() {
+      return canReadCafeScopedResource() &&
+        request.resource.data.cafeId == resource.data.cafeId;
     }
 
     /* =========================
@@ -80,18 +84,13 @@ service cloud.firestore {
 
     match /tables/{tableId} {
 
-      allow read: if (isAuthenticated()
-        && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId))
-        || (resource.data.deletedAt == null);
+      allow read: if canReadCafeScopedResource();
 
-      allow create: if isAuthenticated()
-        && request.resource.data.cafeId is string
-        && isOwnerOrManager(request.resource.data.cafeId);
+      allow create: if canCreateCafeScopedResource();
 
-      allow update: if canAccessByResourceOrRequestCafeId();
+      allow update: if canUpdateCafeScopedResource();
 
-      allow delete: if canAccessByResourceOrRequestCafeId();
+      allow delete: if canReadCafeScopedResource();
     }
 
     /* =========================
@@ -100,19 +99,14 @@ service cloud.firestore {
 
     match /tableItems/{itemId} {
 
-      allow read: if (isAuthenticated()
-        && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId))
-        || (resource.data.deletedAt == null);
+      allow read: if canReadCafeScopedResource();
 
-      allow create: if isAuthenticated()
-        && request.resource.data.cafeId is string
-        && isOwnerOrManager(request.resource.data.cafeId);
+      allow create: if canCreateCafeScopedResource();
 
-      allow update: if canAccessByResourceOrRequestCafeId();
+      allow update: if canUpdateCafeScopedResource();
 
       /* KRİTİK FIX */
-      allow delete: if canAccessByResourceOrRequestCafeId();
+      allow delete: if canReadCafeScopedResource();
     }
 
     /* =========================
@@ -125,9 +119,7 @@ service cloud.firestore {
         && resource.data.cafeId is string
         && isOwnerOrManager(resource.data.cafeId);
 
-      allow create: if isAuthenticated()
-        && request.resource.data.cafeId is string
-        && isOwnerOrManager(request.resource.data.cafeId);
+      allow create: if canCreateCafeScopedResource();
 
       allow update, delete: if false;
     }
@@ -140,7 +132,9 @@ service cloud.firestore {
 
       allow read: if resource.data.deletedAt == null;
 
-      allow create, update, delete: if isAuthenticated();
+      allow create: if canCreateCafeScopedResource();
+      allow update: if canUpdateCafeScopedResource();
+      allow delete: if canReadCafeScopedResource();
     }
 
     /* =========================
@@ -149,15 +143,12 @@ service cloud.firestore {
 
     match /completedSessions/{sessionId} {
 
-      allow read: if isAuthenticated()
-        && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId);
+      allow read: if canReadCafeScopedResource();
 
-      allow create: if isAuthenticated()
-        && request.resource.data.cafeId is string
-        && isOwnerOrManager(request.resource.data.cafeId);
+      allow create: if canCreateCafeScopedResource();
 
-      allow update, delete: if canAccessByResourceOrRequestCafeId();
+      allow update: if canUpdateCafeScopedResource();
+      allow delete: if canReadCafeScopedResource();
     }
 
     /* =========================
@@ -165,13 +156,9 @@ service cloud.firestore {
     ========================= */
 
     match /salesLogs/{saleId} {
-      allow read: if isAuthenticated()
-        && resource.data.cafeId is string
-        && isOwnerOrManager(resource.data.cafeId);
+      allow read: if canReadCafeScopedResource();
 
-      allow create: if isAuthenticated()
-        && request.resource.data.cafeId is string
-        && isOwnerOrManager(request.resource.data.cafeId);
+      allow create: if canCreateCafeScopedResource();
 
       allow update, delete: if false;
     }

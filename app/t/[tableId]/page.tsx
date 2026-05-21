@@ -3,17 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { BillSummary } from '@/app/components/BillSummary';
-import { formatCurrency, subscribePublicTableByToken, subscribeTableById, subscribeTableItems } from '@/lib/firestore';
+import { formatCurrency, mapPublicProjectionToBillView, subscribePublicTableByToken } from '@/lib/firestore';
 import { DEFAULT_CAFE_NAME } from '@/lib/domain/constants';
-import type { CafeTable, PublicTableBillView, PublicTableProjection, TableItem } from '@/types';
+import type { PublicTableBillView, PublicTableProjection } from '@/types';
 
 export default function CustomerTablePage() {
   const params = useParams<{ tableId: string }>();
   const publicToken = params.tableId;
 
   const [projection, setProjection] = useState<PublicTableProjection | null>(null);
-  const [table, setTable] = useState<CafeTable | null>(null);
-  const [items, setItems] = useState<TableItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,33 +21,12 @@ export default function CustomerTablePage() {
 
   useEffect(() => {
     let unsubProjection: (() => void) | undefined;
-    let unsubTable: (() => void) | undefined;
-    let unsubItems: (() => void) | undefined;
     try {
       setIsRefreshing(true);
       unsubProjection = subscribePublicTableByToken(
         publicToken,
         (next) => {
           setProjection(next);
-          if (!next?.tableId || !next?.cafeId) {
-            setTable(null);
-            setItems([]);
-            setLoading(false);
-            setIsRefreshing(false);
-            return;
-          }
-          unsubTable?.();
-          unsubItems?.();
-          unsubTable = subscribeTableById(next.tableId, (nextTable) => {
-            setTable(nextTable);
-            setLoading(false);
-            setIsRefreshing(false);
-          }, (message) => setError(message || 'Masa bilgisi alınamadı.'));
-          unsubItems = subscribeTableItems(next.cafeId, next.tableId, (nextItems) => {
-            setItems(nextItems);
-            setLoading(false);
-            setIsRefreshing(false);
-          }, (message) => setError(message || 'Ürünler alınamadı.'));
           setLoading(false);
           setIsRefreshing(false);
         },
@@ -66,8 +43,6 @@ export default function CustomerTablePage() {
     }
     return () => {
       unsubProjection?.();
-      unsubTable?.();
-      unsubItems?.();
     };
   }, [publicToken]);
 
@@ -84,15 +59,9 @@ export default function CustomerTablePage() {
   }, []);
 
   const bill: PublicTableBillView | null = useMemo(() => {
-    if (!projection || !table) return null;
-    return {
-      tableName: table.name,
-      status: table.status,
-      itemCount: table.itemCount,
-      totalAmount: table.totalAmount,
-      items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, totalPrice: i.totalPrice }))
-    };
-  }, [items, projection, table]);
+    if (!projection) return null;
+    return mapPublicProjectionToBillView(projection);
+  }, [projection]);
   const selectedSubtotal = useMemo(() => {
     if (!bill) return 0;
     return bill.items.reduce((sum, item, idx) => {
@@ -115,7 +84,7 @@ export default function CustomerTablePage() {
       {isRefreshing && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">Hesap güncelleniyor...</div>}
 
       <header className="rounded-2xl bg-white p-4 shadow-sm">
-        <p className="text-xs uppercase tracking-wide text-slate-500">{DEFAULT_CAFE_NAME}</p>
+        <p className="text-xs uppercase tracking-wide text-slate-500">{projection?.cafeName ?? DEFAULT_CAFE_NAME}</p>
         <h1 className="mt-1 text-2xl font-bold">{bill.tableName}</h1>
         <p className="text-sm text-slate-500">Canlı masa hesabı</p>
       </header>

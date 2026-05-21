@@ -48,7 +48,7 @@ If these are missing, the app shows a configuration error and blocks auth/data o
 6. `firestore.rules` dosyasını deploy edin.
 
 ## Vercel deploy adımları (minifabrika.online)
-1. Repo’yu Vercel’e bağlayın ve Production branch olarak `release/admin-stable` seçin.
+1. Repo’yu Vercel’e bağlayın ve production branch'i bu release'i taşıyan dalda tutun. Canlı dağıtım eski bir dalda kalırsa Firestore rules ve uygulama kodu birbirinden kopar.
 2. Domain olarak `minifabrika.online` ekleyin.
 3. **Project Settings > Environment Variables** bölümüne yukarıdaki tüm `NEXT_PUBLIC_*` değişkenleri **Production** scope ile girin.
 4. Build command: `npm run build`, Output: Next.js default.
@@ -78,11 +78,12 @@ If these are missing, the app shows a configuration error and blocks auth/data o
 Toplam tutar / ürün adedi / public projection bütünlüğü bu pilotta istemci akışları ile yönetilir.
 
 ## Firestore kural durumu (hardening)
-- `publicTables` yazımı artık yalnızca admin-auth ve canonical `tables` verisiyle birebir uyumlu payload kabul eder.
+- Ham `tables` ve `tableItems` koleksiyonları public okunmaz; müşteri QR sayfası yalnızca token-keyed `publicTables` projection verisini okur.
+- `publicTables` yazımı yalnızca projection'ın `cafeId` alanı oturumdaki kullanıcının tek kafesiyle eşleştiğinde yapılır.
 - `tableItems` ve `tableActivityLogs` yazımları cafe/table ilişkisi doğrulaması ile sınırlandırılmıştır.
 - `completedSessions` yalnızca admin-auth kullanıcı tarafından, doğrulanmış session item payload şekli ile yazılabilir.
 - `payments`, `splitSessions`, `tableSettlements` koleksiyonları istemciye tamamen kapalıdır.
-- Geçiş dönemi uyumluluğu için client fallback projection/log yazımları hâlâ minimum ölçüde açık tutulur; callable deploy sonrası backend-only yapılmalıdır.
+- Pilot akışta projection/log yazımları doğrudan Firestore istemcisinden yapılır; ödeme veya daha yüksek bütünlük gerektiren mutasyonlardan önce güvenilir bir bütünlük sınırı tasarlanmalıdır.
 
 ## Pilot manuel test checklist (prod)
 1. Masa aç.
@@ -106,6 +107,7 @@ Public signup yoktur.
 4. Firestore'da `cafeUsers/{uid}` oluştur:
    - `email`, `role: "owner" | "manager"`, `cafeId: newCafeId`, `createdAt`, `updatedAt`
 5. Kullanıcı `/admin/login` ile giriş yaptığında yalnızca kendi `cafeId` verisini görür.
+6. Yeni kafede ilk masa/ürün işlemi projection'ı üretir; müşteri QR ekranı projection'daki kafe adını ve hesap verisini gösterir.
 
 ## Production smoke test checklist (manual)
 1. **Admin login**

@@ -9,8 +9,9 @@ export type ActorType = 'admin' | 'system';
 export type Cafe = {
   id: string;
   name: string;
-  slug: string;
+  slug?: string;
   status: CafeStatus;
+  ownerUid: string;
   createdAt: TimestampMs;
   updatedAt: TimestampMs;
 };
@@ -98,6 +99,7 @@ export type PublicTableItem = Pick<TableItem, 'name' | 'quantity' | 'unitPrice' 
 export type PublicTableProjection = {
   id: string; // publicToken as document ID
   cafeId: string;
+  cafeName?: string;
   tableId: string;
   publicToken: string;
   tableName: string;

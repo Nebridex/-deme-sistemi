@@ -17,7 +17,6 @@ import {
   where
 } from 'firebase/firestore';
 import { assertFirebaseConfigured } from '@/lib/firebase';
-import { DEFAULT_CAFE_ID } from '@/lib/domain/constants';
 import { formatDayKeyTR } from '@/lib/domain/time';
 import { generatePublicToken } from '@/lib/domain/token';
 import { calculateTableTotals } from '@/lib/domain/totals';
@@ -45,6 +44,13 @@ const cafesCollection = 'cafes';
 const productEventsCollection = 'productEvents';
 
 const now = () => Date.now();
+const MISSING_CAFE_CONTEXT_ERROR = 'İşletme bilgisi bulunamadı. Lütfen tekrar giriş yapın.';
+
+function requireCafeId(...candidates: Array<string | null | undefined>) {
+  const cafeId = candidates.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  if (!cafeId) throw new Error(MISSING_CAFE_CONTEXT_ERROR);
+  return cafeId;
+}
 
 function toFirebaseErrorMessage(err: unknown) {
   if (err instanceof FirebaseError) return `${err.code}: ${err.message}`;
@@ -85,18 +91,22 @@ async function syncPublicTableProjectionDirect(tableId: string, cafeId: string) 
   if (!tableSnap.exists()) return;
 
   const table = { id: tableSnap.id, ...(tableSnap.data() as Omit<CafeTable, 'id'>) };
+  const effectiveCafeId = requireCafeId(table.cafeId, cafeId);
   const itemsSnap = await getDocs(
     query(
       collection(db, itemsCollection),
       where('tableId', '==', tableId),
-      where('cafeId', '==', cafeId),
+      where('cafeId', '==', effectiveCafeId),
       where('deletedAt', '==', null)
     )
   );
   const items = itemsSnap.docs.map((d) => d.data() as TableItem);
+  const cafeSnap = await getDoc(doc(db, cafesCollection, effectiveCafeId));
+  const cafeName = cafeSnap.exists() ? (cafeSnap.data() as { name?: string }).name : undefined;
 
   const projection = {
-    cafeId,
+    cafeId: effectiveCafeId,
+    ...(cafeName ? { cafeName } : {}),
     tableId,
     publicToken: table.publicToken,
     tableName: table.name,
@@ -120,7 +130,7 @@ async function recomputeTableAggregatesDirect(tableId: string, cafeId: string) {
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) return;
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
-  const effectiveCafeId = table.cafeId ?? cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(table.cafeId, cafeId);
   const itemsSnap = await getDocs(
     query(
       collection(db, itemsCollection),
@@ -168,7 +178,7 @@ async function recalculateTableSnapshotFromItems(tableId: string, cafeId: string
   const tableSnap = await getDoc(tableRef);
   if (!tableSnap.exists()) return;
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
-  const effectiveCafeId = table.cafeId ?? cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(table.cafeId, cafeId);
   const itemsSnap = await getDocs(
     query(
       collection(db, itemsCollection),
@@ -187,6 +197,7 @@ async function recalculateTableSnapshotFromItems(tableId: string, cafeId: string
       : 'occupied';
   const timestamp = now();
   await updateDoc(tableRef, { itemCount, totalAmount: currentTotal, status, updatedAt: timestamp, lastActivityAt: timestamp, cafeId: effectiveCafeId });
+  await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
 }
 
 export async function recomputeTableAggregates(tableId: string, cafeId: string) {
@@ -346,7 +357,7 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = { id: tableSnap.id, ...(tableSnap.data() as Omit<CafeTable, 'id'>) };
-  const cafeId = actor?.cafeId ?? table.cafeId ?? DEFAULT_CAFE_ID;
+  const cafeId = requireCafeId(actor?.cafeId, table.cafeId);
 
   const itemsSnap = await getDocs(
     query(
@@ -379,11 +390,11 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
   return { table: { ...table, cafeId }, items, timestamp, sessionId: sessionRef.id };
 }
 
-export async function createTable(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
+export async function createTable(name: string, actor?: AdminIdentity | null, cafeId?: string) {
   const { db } = assertFirebaseConfigured();
   const timestamp = now();
   const token = generatePublicToken();
-  const effectiveCafeId = actor?.cafeId ?? cafeId;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, cafeId);
 
   const table: Omit<CafeTable, 'id'> = {
     cafeId: effectiveCafeId,
@@ -417,7 +428,7 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
-  const effectiveCafeId = actor?.cafeId ?? table.cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, table.cafeId);
 
   const timestamp = now();
   const updates: Record<string, unknown> = { ...payload, updatedAt: timestamp, lastActivityAt: timestamp };
@@ -493,11 +504,11 @@ export async function updateTable(tableId: string, payload: Partial<Pick<CafeTab
   }
 }
 
-export async function createTemporaryOrder(name: string, actor?: AdminIdentity | null, cafeId = DEFAULT_CAFE_ID) {
+export async function createTemporaryOrder(name: string, actor?: AdminIdentity | null, cafeId?: string) {
   const { db } = assertFirebaseConfigured();
   const timestamp = now();
   const token = generatePublicToken();
-  const effectiveCafeId = actor?.cafeId ?? cafeId;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, cafeId);
 
   const table: Omit<CafeTable, 'id'> = {
     cafeId: effectiveCafeId,
@@ -652,7 +663,7 @@ export async function rotateTableToken(table: CafeTable, actor: AdminIdentity) {
   const newToken = generatePublicToken();
   const previousToken = table.publicToken;
 
-  const effectiveCafeId = actor.cafeId ?? table.cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor.cafeId, table.cafeId);
   await updateDoc(doc(db, tablesCollection, table.id), { publicToken: newToken, updatedAt: now(), lastActivityAt: now(), cafeId: effectiveCafeId });
   const previousProjectionSnap = await getDoc(doc(db, publicTablesCollection, previousToken));
   if (previousProjectionSnap.exists()) await deleteDoc(doc(db, publicTablesCollection, previousToken));
@@ -670,7 +681,7 @@ export async function softDeleteTable(tableId: string, actor?: AdminIdentity | n
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   if (!tableSnap.exists()) throw new Error('Masa bulunamadı.');
   const table = tableSnap.data() as Omit<CafeTable, 'id'>;
-  const effectiveCafeId = actor?.cafeId ?? table.cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, table.cafeId);
 
   await updateDoc(doc(db, tablesCollection, tableId), { deletedAt: now(), updatedAt: now(), cafeId: effectiveCafeId });
   const itemsSnap = await getDocs(
@@ -696,7 +707,7 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   const tableData = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>) : null;
   const tableCafeId = tableData?.cafeId ?? null;
-  const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, tableCafeId, cafeId);
   const timestamp = now();
   const item: Omit<TableItem, 'id'> = { tableId, cafeId: effectiveCafeId, name, quantity, unitPrice, totalPrice: quantity * unitPrice, deletedAt: null, createdAt: timestamp, updatedAt: timestamp };
   await addDoc(collection(db, itemsCollection), item);
@@ -727,11 +738,7 @@ export async function addTableItem(tableId: string, cafeId: string, name: string
   } catch (err) {
     reportDevOnlyError(`Opsiyonel productEvents yazımı başarısız: ${tableId}`, err);
   }
-  try {
-    await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
-  } catch (err) {
-    reportDevOnlyError(`Opsiyonel recalculate başarısız: ${tableId}`, err);
-  }
+  await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_added', message: `${name} eklendi`, actorType: 'admin', actorId: actor?.uid ?? null });
 }
 
@@ -739,7 +746,7 @@ export async function editTableItem(itemId: string, payload: Pick<TableItem, 'na
   const { db } = assertFirebaseConfigured();
   const tableSnap = await getDoc(doc(db, tablesCollection, payload.tableId));
   const tableCafeId = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>).cafeId : null;
-  const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? payload.cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, tableCafeId, payload.cafeId);
   const totalPrice = payload.quantity * payload.unitPrice;
   await updateDoc(doc(db, itemsCollection, itemId), { ...payload, cafeId: effectiveCafeId, totalPrice, updatedAt: now() });
   await recalculateTableSnapshotFromItems(payload.tableId, effectiveCafeId);
@@ -750,7 +757,7 @@ export async function softDeleteTableItem(itemId: string, tableId: string, cafeI
   const { db } = assertFirebaseConfigured();
   const tableSnap = await getDoc(doc(db, tablesCollection, tableId));
   const tableCafeId = tableSnap.exists() ? (tableSnap.data() as Omit<CafeTable, 'id'>).cafeId : null;
-  const effectiveCafeId = actor?.cafeId ?? tableCafeId ?? cafeId ?? DEFAULT_CAFE_ID;
+  const effectiveCafeId = requireCafeId(actor?.cafeId, tableCafeId, cafeId);
   await updateDoc(doc(db, itemsCollection, itemId), { deletedAt: now(), updatedAt: now() });
   await recalculateTableSnapshotFromItems(tableId, effectiveCafeId);
   await safeLogTableActivity({ tableId, cafeId: effectiveCafeId, actionType: 'item_removed', message: 'Ürün kaldırıldı', actorType: 'admin', actorId: actor?.uid ?? null });
@@ -763,11 +770,6 @@ export function formatFirestoreActionError(err: unknown, fallback: string) {
 
 export function mapPublicProjectionToBillView(projection: PublicTableProjection): PublicTableBillView {
   return { tableName: projection.tableName, status: projection.status, itemCount: projection.itemCount, totalAmount: projection.totalAmount, items: projection.items };
-}
-
-export async function upsertCafeUser(uidValue: string, email: string, role: 'owner' | 'manager', cafeId = DEFAULT_CAFE_ID) {
-  const { db } = assertFirebaseConfigured();
-  await setDoc(doc(db, 'cafeUsers', uidValue), { uid: uidValue, email, role, cafeId, updatedAt: now(), createdAt: now() }, { merge: true });
 }
 
 export const formatCurrency = (value: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);

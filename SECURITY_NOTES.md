@@ -12,9 +12,9 @@
 - `tableItems`: add/edit/soft delete (owner/manager).
 - `tables`: name/status updates and soft-delete marker.
 - `tableActivityLogs`: append-only events (minimum payload validation + cafe/table relation check).
-- `publicTables`: only admin-auth writes that must mirror canonical `tables` fields (token/name/status/itemCount/totalAmount).
+- `publicTables`: only same-cafe owner/manager writes; the customer page reads this token-keyed projection instead of raw tables/items.
 
-### Backend-controlled target (recommended)
+### Trusted-backend target (future hardening)
 - `tables.totalAmount` / `tables.itemCount`
 - `publicTables` projection sync
 - token rotation invalidation flow
@@ -33,8 +33,8 @@
 - Client-side role mutation is blocked in rules.
 - Owner/manager grants must be done via trusted backend/admin tooling.
 
-## 6) Rule tightening after backend deploy
-When callable integrity functions are live, tighten rules to:
+## 6) Future rule tightening
+If a trusted backend is introduced later, tighten rules to:
 1. Block direct client updates for `tables.totalAmount`, `tables.itemCount`, `tables.publicToken`.
 2. Block direct client create/update for `publicTables`.
 3. Move `tableActivityLogs` create to backend-only.
@@ -46,7 +46,7 @@ When callable integrity functions are live, tighten rules to:
 - `tableActivityLogs`: `(cafeId, tableId, createdAt desc)`
 
 ## 8) Production checklist before payment integration
-1. Complete and deploy callable integrity functions.
+1. Decide and implement a trusted integrity boundary before payment mutations.
 2. Run Firebase Emulator rules tests for role/access and new collections.
 3. Add audit logging/alerting for token rotation + settlement mutations.
 4. Validate staging with real Auth + Firestore before payment provider rollout.
