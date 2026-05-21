@@ -55,6 +55,32 @@ function ReportsContent() {
       .sort((a, b) => b.revenue - a.revenue);
   }, [logs]);
 
+  const summary = useMemo(() => {
+    const revenue = logs.reduce((sum, sale) => sum + sale.total, 0);
+    const itemCount = logs.reduce((sum, sale) => sum + sale.itemCount, 0);
+    return {
+      revenue,
+      sales: logs.length,
+      itemCount,
+      averageSale: logs.length ? revenue / logs.length : 0
+    };
+  }, [logs]);
+
+  const exportCsv = () => {
+    const escapeCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+    const csv = [
+      ['Masa', 'Ciro', 'Satış', 'Ortalama'].map(escapeCell).join(','),
+      ...rows.map((row) => [row.tableName, row.revenue, row.sales, row.avg].map(escapeCell).join(','))
+    ].join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `masa-raporu-${new Date(fromTs).toISOString().slice(0, 10)}-${new Date(toTs).toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="mx-auto max-w-6xl p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -62,10 +88,10 @@ function ReportsContent() {
         <Link href="/admin" className="text-sm underline">Panele Dön</Link>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {(['today', '7d', '30d', 'custom'] as const).map((key) => (
           <button key={key} className={`rounded border px-3 py-1 text-sm ${filter === key ? 'bg-slate-900 text-white' : 'bg-white'}`} onClick={() => setFilter(key)}>
-            {key === 'today' ? 'Today' : key === '7d' ? '7 Days' : key === '30d' ? '30 Days' : 'Custom'}
+            {key === 'today' ? 'Bugün' : key === '7d' ? 'Son 7 Gün' : key === '30d' ? 'Son 30 Gün' : 'Özel Aralık'}
           </button>
         ))}
         {filter === 'custom' && (
@@ -74,7 +100,33 @@ function ReportsContent() {
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="rounded border px-2 py-1 text-sm" />
           </>
         )}
+        <button
+          className="rounded border px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!rows.length}
+          onClick={exportCsv}
+        >
+          CSV İndir
+        </button>
       </div>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-lg border bg-emerald-50 p-3">
+          <p className="text-xs text-emerald-700">Seçili Aralık Cirosu</p>
+          <p className="text-xl font-semibold text-emerald-900">{formatCurrency(summary.revenue)}</p>
+        </div>
+        <div className="rounded-lg border bg-white p-3">
+          <p className="text-xs text-slate-500">Satış Sayısı</p>
+          <p className="text-xl font-semibold">{summary.sales}</p>
+        </div>
+        <div className="rounded-lg border bg-white p-3">
+          <p className="text-xs text-slate-500">Satılan Ürün</p>
+          <p className="text-xl font-semibold">{summary.itemCount}</p>
+        </div>
+        <div className="rounded-lg border bg-white p-3">
+          <p className="text-xs text-slate-500">Ortalama Adisyon</p>
+          <p className="text-xl font-semibold">{formatCurrency(summary.averageSale)}</p>
+        </div>
+      </section>
 
       <div className="rounded-xl border bg-white">
         <table className="min-w-full text-sm">

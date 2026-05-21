@@ -105,7 +105,12 @@ export function TableCard({
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         {onComplete && (
-          <button className="col-span-2 rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700" onClick={() => onComplete(table)}>
+          <button
+            className="col-span-2 rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={table.itemCount === 0}
+            title={table.itemCount === 0 ? 'Önce ürün ekleyin.' : undefined}
+            onClick={() => onComplete(table)}
+          >
             {completeLabel}
           </button>
         )}

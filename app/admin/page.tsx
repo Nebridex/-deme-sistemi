@@ -22,15 +22,17 @@ import {
   subscribeTodayActivityLogsByDayKey,
   subscribeTopProductsByDay,
   subscribeSalesLogsByDay,
+  subscribeCafeById,
   subscribeTables,
   updateTable
 } from '@/lib/firestore';
-import type { CafeTable, SaleLog, TableActivityLog } from '@/types';
+import type { Cafe, CafeTable, SaleLog, TableActivityLog } from '@/types';
 
 function AdminDashboardContent() {
   const router = useRouter();
   const { user } = useAdminAuth();
   const [tables, setTables] = useState<CafeTable[]>([]);
+  const [cafe, setCafe] = useState<Cafe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
@@ -40,6 +42,7 @@ function AdminDashboardContent() {
   const [isCreatingTemporary, setIsCreatingTemporary] = useState(false);
   const [recentItems, setRecentItems] = useState<string[]>([]);
   const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
+  const [tableSearch, setTableSearch] = useState('');
   const [recentLogs, setRecentLogs] = useState<TableActivityLog[]>([]);
   const [todaySalesLogs, setTodaySalesLogs] = useState<SaleLog[]>([]);
   const [topItemsToday, setTopItemsToday] = useState<Array<{ name: string; count: number }>>([]);
@@ -69,6 +72,19 @@ function AdminDashboardContent() {
     if (!user?.cafeId) return;
     setRecentItems(getRecentItemNames(user.cafeId));
     setPresetItems(getPresetItems(user.cafeId));
+  }, [user?.cafeId]);
+
+  useEffect(() => {
+    if (!user?.cafeId) return;
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeCafeById(user.cafeId, setCafe, (message) => {
+        setError(message || 'İşletme bilgisi alınamadı.');
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'İşletme bilgisi alınamadı.');
+    }
+    return () => unsub?.();
   }, [user?.cafeId]);
 
   useEffect(() => {
@@ -158,6 +174,15 @@ function AdminDashboardContent() {
     () => tables.filter((table) => (table.entityType ?? 'fixed_table') === 'temporary_order'),
     [tables]
   );
+  const normalizedTableSearch = tableSearch.trim().toLocaleLowerCase('tr-TR');
+  const displayedFixedTables = useMemo(
+    () => fixedTables.filter((table) => table.name.toLocaleLowerCase('tr-TR').includes(normalizedTableSearch)),
+    [fixedTables, normalizedTableSearch]
+  );
+  const displayedTemporaryOrders = useMemo(
+    () => temporaryOrders.filter((table) => table.name.toLocaleLowerCase('tr-TR').includes(normalizedTableSearch)),
+    [normalizedTableSearch, temporaryOrders]
+  );
 
   const summary = useMemo(() => {
         const fixedActive = fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending');
@@ -176,16 +201,16 @@ function AdminDashboardContent() {
 
   const groupedFixed = useMemo(
     () => ({
-      occupied: fixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending'),
-      ready: fixedTables.filter((table) => table.status === 'empty'),
-      legacyClosed: fixedTables.filter((table) => table.status === 'closed')
+      occupied: displayedFixedTables.filter((table) => table.status === 'occupied' || table.status === 'payment_pending'),
+      ready: displayedFixedTables.filter((table) => table.status === 'empty'),
+      legacyClosed: displayedFixedTables.filter((table) => table.status === 'closed')
     }),
-    [fixedTables]
+    [displayedFixedTables]
   );
 
   const activeTemporaryOrders = useMemo(
-    () => temporaryOrders.filter((table) => !table.deletedAt && table.status !== 'closed'),
-    [temporaryOrders]
+    () => displayedTemporaryOrders.filter((table) => !table.deletedAt && table.status !== 'closed'),
+    [displayedTemporaryOrders]
   );
 
   const toggleSection = (sectionKey: string) => {
@@ -258,7 +283,8 @@ function AdminDashboardContent() {
       <header className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Kafe Yönetim Paneli</h1>
+            <p className="text-xs font-medium uppercase text-slate-500">Aktif işletme</p>
+            <h1 className="text-2xl font-bold">{cafe?.name ?? 'Kafe Yönetim Paneli'}</h1>
             <p className="text-sm text-slate-600">Sabit masaları ve geçici siparişleri aynı operasyon ekranından yönetin.</p>
           </div>
           <div className="flex items-center gap-2">
@@ -288,6 +314,23 @@ function AdminDashboardContent() {
             <input value={newTemporaryName} onChange={(e) => setNewTemporaryName(e.target.value)} placeholder="Geçici sipariş adı (örn. Paket 1)" className="w-full rounded-lg border px-3 py-2 text-sm" />
             <button disabled={isCreatingTemporary} className="rounded-lg bg-indigo-700 px-4 py-2 text-sm text-white disabled:opacity-60" type="submit">{isCreatingTemporary ? 'Açılıyor...' : 'Geçici Sipariş Aç'}</button>
           </form>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <label className="w-full max-w-md">
+            <span className="sr-only">Masa ve sipariş ara</span>
+            <input
+              value={tableSearch}
+              onChange={(e) => setTableSearch(e.target.value)}
+              placeholder="Masa veya sipariş ara"
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </label>
+          {!!normalizedTableSearch && (
+            <p className="text-xs text-slate-500">
+              {displayedFixedTables.length + displayedTemporaryOrders.length} sonuç gösteriliyor.
+            </p>
+          )}
         </div>
       </header>
 
@@ -372,7 +415,9 @@ function AdminDashboardContent() {
                       <Link href={`/admin/tables/${table.id}`} className="rounded-md border px-2 py-1 text-xs">Detay</Link>
                       <button className="rounded-md border px-2 py-1 text-xs" onClick={() => renderQuickAdd(table)}>Hızlı Ürün</button>
                       <button
-                        className="rounded-md border border-indigo-300 px-2 py-1 text-xs text-indigo-700"
+                        className="rounded-md border border-indigo-300 px-2 py-1 text-xs text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={table.itemCount === 0}
+                        title={table.itemCount === 0 ? 'Önce ürün ekleyin.' : undefined}
                         onClick={async () => {
                           try {
                             await completeTableSession(table.id, user);

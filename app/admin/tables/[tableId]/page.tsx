@@ -50,6 +50,7 @@ function AdminTableDetailContent() {
   const [presetItems, setPresetItems] = useState<PresetItemShortcut[]>([]);
   const [newPreset, setNewPreset] = useState('');
   const [newPresetPrice, setNewPresetPrice] = useState('');
+  const [copiedBillLink, setCopiedBillLink] = useState(false);
 
   const publicBillUrl = `${appEnv.appBaseUrl}/t/${table?.publicToken ?? ''}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(publicBillUrl)}`;
@@ -145,6 +146,16 @@ function AdminTableDetailContent() {
     setEditingId(null);
   };
 
+  const copyCustomerBillLink = async () => {
+    try {
+      await navigator.clipboard.writeText(publicBillUrl);
+      setCopiedBillLink(true);
+      window.setTimeout(() => setCopiedBillLink(false), 1800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Müşteri bağlantısı kopyalanamadı.');
+    }
+  };
+
   if (loading) return <div className="p-6 text-center text-slate-500">Masa yükleniyor...</div>;
   if (!table) return <div className="p-6 text-center text-slate-500">Masa bulunamadı veya arşive alınmış.</div>;
 
@@ -169,7 +180,9 @@ function AdminTableDetailContent() {
             </button>
           )}
           <button
-            className="rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700"
+            className="rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={table.itemCount === 0}
+            title={table.itemCount === 0 ? 'Önce ürün ekleyin.' : undefined}
             onClick={async () => {
               try {
                 await completeTableSession(table.id, user);
@@ -360,6 +373,13 @@ function AdminTableDetailContent() {
             <div className="space-y-2">
               <input className="w-full rounded-lg border px-2 py-1 text-xs text-slate-600" value={publicBillUrl} readOnly />
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border px-3 py-1.5 text-xs"
+                  onClick={copyCustomerBillLink}
+                >
+                  {copiedBillLink ? 'Link Kopyalandı' : 'Linki Kopyala'}
+                </button>
                 <a href={qrUrl} download={`${table.name}-qr.png`} className="rounded-md border px-3 py-1.5 text-xs">QR İndir</a>
                 <button
                   type="button"

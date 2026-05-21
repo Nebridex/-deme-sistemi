@@ -23,6 +23,7 @@ import { calculateTableTotals } from '@/lib/domain/totals';
 import type {
   AdminIdentity,
   CafeTable,
+  Cafe,
   CompletedSessionItemSnapshot,
   PublicTableBillView,
   PublicTableProjection,
@@ -210,6 +211,15 @@ export function subscribeTables(cafeId: string, callback: (tables: CafeTable[]) 
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CafeTable, 'id'>) }))), (err) => onError?.(err.message));
 }
 
+export function subscribeCafeById(cafeId: string, callback: (cafe: Cafe | null) => void, onError?: (message: string) => void) {
+  const { db } = assertFirebaseConfigured();
+  return onSnapshot(
+    doc(db, cafesCollection, cafeId),
+    (snap) => callback(snap.exists() ? { id: snap.id, ...(snap.data() as Omit<Cafe, 'id'>) } : null),
+    (err) => onError?.(err.message)
+  );
+}
+
 export function subscribeTableById(tableId: string, callback: (table: CafeTable | null) => void, onError?: (message: string) => void) {
   const { db } = assertFirebaseConfigured();
   return onSnapshot(
@@ -368,6 +378,9 @@ async function createCompletedSessionSnapshot(tableId: string, actor?: AdminIden
     )
   );
   const items = itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TableItem, 'id'>) }));
+  if (!items.length || table.itemCount <= 0) {
+    throw new Error('Boş adisyon kapatılamaz. Önce ürün ekleyin.');
+  }
   const timestamp = now();
   const openedAt = table.openedAt ?? table.lastActivityAt ?? table.createdAt;
   const entityType = table.entityType ?? 'fixed_table';
