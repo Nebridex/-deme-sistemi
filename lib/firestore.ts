@@ -197,7 +197,21 @@ async function recalculateTableSnapshotFromItems(tableId: string, cafeId: string
       ? table.status
       : 'occupied';
   const timestamp = now();
-  await updateDoc(tableRef, { itemCount, totalAmount: currentTotal, status, updatedAt: timestamp, lastActivityAt: timestamp, cafeId: effectiveCafeId });
+  const updates: Record<string, unknown> = {
+    itemCount,
+    totalAmount: currentTotal,
+    status,
+    updatedAt: timestamp,
+    lastActivityAt: timestamp,
+    cafeId: effectiveCafeId
+  };
+  if (status !== table.status) updates.lastStatusChangedAt = timestamp;
+  if (status === 'occupied' && !['occupied', 'payment_pending'].includes(table.status)) {
+    updates.openedAt = timestamp;
+    updates.closedAt = null;
+    updates.closedAmountSnapshot = null;
+  }
+  await updateDoc(tableRef, updates);
   await syncPublicTableProjectionDirect(tableId, effectiveCafeId);
 }
 

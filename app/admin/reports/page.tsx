@@ -128,7 +128,7 @@ function ReportsContent() {
         </div>
       </section>
 
-      <div className="rounded-xl border bg-white">
+      <div className="overflow-x-auto rounded-xl border bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left">
             <tr>

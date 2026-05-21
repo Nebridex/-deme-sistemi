@@ -37,6 +37,7 @@ export function TableCard({
   const statusChoices: CafeTable['status'][] = (table.entityType ?? 'fixed_table') === 'temporary_order'
     ? ['occupied', 'payment_pending', 'closed']
     : ['empty', 'occupied'];
+  const currentOpenedAt = table.openedAt ?? (table.itemCount > 0 ? table.lastActivityAt : null);
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
@@ -75,7 +76,7 @@ export function TableCard({
           {table.status === 'closed' ? (
             <p className="mt-1 text-xs text-violet-700">Kapanış: {formatDateTime(table.closedAt)}</p>
           ) : (
-            <p className="mt-1 text-xs text-emerald-700">Açılış: {formatDateTime(table.openedAt)}</p>
+            <p className="mt-1 text-xs text-emerald-700">Açılış: {formatDateTime(currentOpenedAt)}</p>
           )}
         </div>
         <select

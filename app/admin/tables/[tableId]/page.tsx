@@ -159,11 +159,14 @@ function AdminTableDetailContent() {
   if (loading) return <div className="p-6 text-center text-slate-500">Masa yükleniyor...</div>;
   if (!table) return <div className="p-6 text-center text-slate-500">Masa bulunamadı veya arşive alınmış.</div>;
 
+  const currentOpenedAt = table.openedAt ?? (table.itemCount > 0 ? table.lastActivityAt : null);
+  const closedLabel = table.status === 'occupied' || table.status === 'payment_pending' ? 'Son Kapanış' : 'Kapanış';
+
   return (
     <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/admin" className="text-sm text-slate-600 underline">← Panele Dön</Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 sm:justify-end">
           {(table.entityType ?? 'fixed_table') === 'fixed_table' && <Link href={`/t/${table.publicToken}`} className="rounded-md border px-3 py-1.5 text-sm">Müşteri Hesabını Aç</Link>}
           {(table.entityType ?? 'fixed_table') === 'fixed_table' && user?.role === 'owner' && (
             <button
@@ -209,8 +212,8 @@ function AdminTableDetailContent() {
             <h1 className="text-2xl font-bold">{table.name}</h1>
             <p className="text-sm text-slate-500">{entityTypeLabel[table.entityType ?? 'fixed_table']} · Erişim anahtarı: {table.publicToken.slice(0, 10)}... · {formatRelativeTime(table.lastActivityAt)} güncellendi</p>
             <div className="mt-2 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
-              <p>Açılış: <span className="font-medium text-slate-800">{formatDateTime(table.openedAt)}</span></p>
-              <p>Kapanış: <span className="font-medium text-slate-800">{formatDateTime(table.closedAt)}</span></p>
+              <p>Açılış: <span className="font-medium text-slate-800">{formatDateTime(currentOpenedAt)}</span></p>
+              <p>{closedLabel}: <span className="font-medium text-slate-800">{formatDateTime(table.closedAt)}</span></p>
               <p>Oluşturulma: <span className="font-medium text-slate-800">{formatDateTime(table.createdAt)}</span></p>
               <p>Son Durum Değişimi: <span className="font-medium text-slate-800">{formatDateTime(table.lastStatusChangedAt)}</span></p>
             </div>
